@@ -1,5 +1,14 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Página 4: Apuração (tabela de períodos)
+- Nova tela `/app/frontend/public/pgmei4.html` (HTML original do usuário), acessada ao clicar **Ok** na tela de emissão: `/pgmei4.html?cnpj=&ano=`.
+- Novo endpoint `GET /api/apuracao/{cnpj}/{ano}`: retorna os 12 períodos do ano.
+  - **Decisão do usuário**: sem a chave da API oficial (Integra Contador) não há como saber quais meses estão em aberto, então **todos os períodos vêm como "Liquidado"** — e nesse caso a Receita exibe "-" em Principal/Multa/Juros/Total/Datas.
+  - `_vencimento_das(ano, mes)`: dia 20 do mês seguinte, adiado para o próximo dia útil (considera fins de semana e o feriado de 20/11). Confere com o print do usuário (Ago→21/09, Out→23/11, Dez→20/01/2027).
+- Comportamentos na tela: combo de ano sincronizado com `?ano=` (trocar o ano recarrega a apuração), `#selecionarTodos` marca/desmarca os 12 períodos, `#btnEmitirDas` exige pelo menos um período e informa que a geração do PDF não está disponível nesta versão. "Atualizar Valores" e "Pagar Online" seguem desabilitados como no original.
+- Overlay de carregamento de 2s cobre a tela até a tabela estar pronta (sem flash).
+- Testado (testing_agent iteration_12): backend 100%, frontend 100% (11/11). Teste criado pelo agente: `/app/backend/tests/test_apuracao.py`.
+
 ## Atualização (01/10/2026) — Overlay de carregamento + fim do flash na tela de emissão
 - **Causa**: o `pgmei-shared.css` era carregado no FIM do arquivo e a tela de emissão havia perdido as regras `.dropdown-menu>li>a` (removidas pelo SingleFile). Antes do primeiro paint, os itens do menu apareciam como links azuis sem estilo e o combo vazio como uma caixa branca.
 - **Fix**:
