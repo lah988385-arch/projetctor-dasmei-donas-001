@@ -36,7 +36,11 @@
     var qs = cnpj ? ('?cnpj=' + cnpj) : '';
     document.querySelectorAll('nav .navbar-nav > li > a').forEach(function (a) {
       var t = (a.textContent || '').trim().toLowerCase();
-      if (t.indexOf('inicio') === 0 || t.indexOf('início') === 0 || t.indexOf('sair') === 0) {
+      if (t.indexOf('inicio') === 0 || t.indexOf('início') === 0) {
+        // "Inicio" mantém o contribuinte logado na tela inicial
+        a.setAttribute('href', '/pgmei2.html' + qs);
+      } else if (t.indexOf('sair') === 0) {
+        // "Sair" encerra a sessão e volta para a tela de identificação
         a.setAttribute('href', '/pgmei.html');
       } else if (t.indexOf('emitir guia') === 0) {
         a.setAttribute('href', '/pgmei3.html' + qs);
