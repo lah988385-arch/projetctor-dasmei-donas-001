@@ -59,6 +59,16 @@
       });
   }
 
+  function mostrarCarregando() {
+    var el = document.getElementById('pg-loading');
+    if (el) el.classList.remove('pg-oculto');
+  }
+
+  function esconderCarregando() {
+    var el = document.getElementById('pg-loading');
+    if (el) el.classList.add('pg-oculto');
+  }
+
   function ajustarLinksNavbar(cnpj) {
     var qs = cnpj ? ('?cnpj=' + cnpj) : '';
     document.querySelectorAll('nav .navbar-nav > li > a').forEach(function (a) {
@@ -72,6 +82,8 @@
         a.addEventListener('click', encerrarSessao);
       } else if (t.indexOf('emitir guia') === 0) {
         a.setAttribute('href', '/pgmei3.html' + qs);
+        // cobre a tela com o carregamento já no clique, sem piscar conteúdo
+        a.addEventListener('click', mostrarCarregando);
       }
     });
   }
@@ -213,6 +225,8 @@
     maskCnpj: maskCnpj,
     getCnpj: getCnpj,
     spinnerLadda: spinnerLadda,
+    mostrarCarregando: mostrarCarregando,
+    esconderCarregando: esconderCarregando,
     init: function () {
       var cnpj = getCnpj();
       if (!cnpj) {
