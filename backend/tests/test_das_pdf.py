@@ -92,8 +92,8 @@ def test_get_das_pdf_consolidado_3_periodos():
     # 6 linhas de composição (3 INSS + 3 ICMS)
     assert text.count("0151") >= 3
     assert text.count("0083") >= 3
-    # Totais consolidados
-    for v in ("246,15", "14,07", "2,46", "262,68"):
+    # Totais consolidados (Selic 0.010841; juros = 1% + Selic*(meses-1))
+    for v in ("246,15", "14,07", "2,53", "262,75"):
         assert v in text, f"total {v} ausente"
     assert "DOCUMENTO DE ESTUDO" in text
     assert "NÃO PAGÁVEL" in text
@@ -130,8 +130,11 @@ def test_gerados_cnpj_invalido():
     _get_gerados("11111111111111", 2026, "202608", expected=400)
 
 
-def test_gerados_pas_vazio():
-    _get_gerados(CNPJ_MARIA, 2026, "", expected=400)
+def test_gerados_pas_vazio_auto_apura():
+    # Agora pas vazio = auto-apura devedores (não é mais 400)
+    r = requests.get(f"{API}/das/gerados/{CNPJ_MARIA}/2026", params={"pas": ""}, timeout=30)
+    assert r.status_code == 200
+    assert len(r.json()["itens"]) == 2
 
 
 def test_gerados_periodo_outro_ano():
@@ -142,8 +145,11 @@ def test_pdf_get_cnpj_invalido():
     _get_pdf("11111111111111", 2026, "202608", expected=400)
 
 
-def test_pdf_get_pas_vazio():
-    _get_pdf(CNPJ_MARIA, 2026, "", expected=400)
+def test_pdf_get_pas_vazio_auto_apura():
+    # Agora pas vazio = auto-apura devedores (não é mais 400)
+    r = requests.get(f"{API}/das/pdf/{CNPJ_MARIA}/2026", params={"pas": ""}, timeout=60)
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("application/pdf")
 
 
 def test_pdf_get_periodo_outro_ano():

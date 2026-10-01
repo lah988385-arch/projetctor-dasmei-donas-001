@@ -247,17 +247,23 @@ async def apuracao(cnpj: str, ano: int):
     ultimo_dia = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)
 
     vencimentos = {mes: _vencimento_das(ano, mes) for mes in range(1, 13)}
-    vencidos = sorted((mes for mes, v in vencimentos.items() if v < hoje),
-                      key=lambda m: vencimentos[m])
-    # Sem acesso à base da Receita, assume-se que os dois últimos vencidos estão em aberto
-    devedores = set(vencidos[-2:])
+    # Os dois últimos PA vencidos são considerados em aberto. O cálculo é GLOBAL
+    # (atravessa anos), então anos antigos aparecem integralmente liquidados.
+    candidatos = [
+        (a, m)
+        for a in range(hoje.year - 1, hoje.year + 2)
+        for m in range(1, 13)
+        if _vencimento_das(a, m) < hoje
+    ]
+    candidatos.sort(key=lambda am: _vencimento_das(*am), reverse=True)
+    devedores = set(candidatos[:2])
 
     periodos = []
     for mes in range(1, 13):
         venc = vencimentos[mes]
         if venc >= hoje:
             situacao = "A Vencer"
-        elif mes in devedores:
+        elif (ano, mes) in devedores:
             situacao = "Devedor"
         else:
             situacao = "Liquidado"
