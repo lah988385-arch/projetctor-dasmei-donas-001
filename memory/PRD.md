@@ -1,5 +1,14 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — PDF real do DAS (documento de estudo)
+- Novo `POST /api/das/pdf` + `/app/backend/das_pdf.py`: gera o DAS em PDF com **uma página por período selecionado**.
+- **Fidelidade**: layout, cores (azul `#002059`, verde `#64A70B`), fontes e coordenadas foram extraídos do PDF oficial enviado pelo usuário (`pdfplumber`). O logo do Simples Nacional foi extraído do próprio PDF (`/app/backend/assets/simples_nacional.png`).
+- **Valores reais**: INSS = 5% do salário mínimo do ano (tabela 2021-2026; 2026 → R$ 81,05), ICMS R$ 1,00, ISS R$ 0,00; multa 0,33%/dia (máx. 20%) e juros 1% por mês de atraso. Confere dígito a dígito com o documento oficial (82,05 / 2,70 / 0,82 / **85,57**).
+- **Código de barras FEBRABAN** de 44 dígitos + linha digitável com DVs por módulo 11 — algoritmo validado contra o documento real. O CPF do titular é derivado do nome empresarial do MEI e a UF vem da BrasilAPI (`/api/consulta-cnpj` agora retorna `uf`).
+- **Marcação de estudo obrigatória**: marca d'água "DOCUMENTO DE ESTUDO / SEM VALIDADE LEGAL", aviso vermelho "NÃO PAGÁVEL" e QR Code substituído por um QR inócuo. Código de barras/linha digitável/QR **NÃO são pagáveis** (MOCKADOS).
+- Frontend: `#btnEmitirDas` envia os períodos marcados, recebe o blob e dispara o download `DAS_<cnpj>_<ano>_estudo.pdf`; sem seleção, mostra o banner vermelho.
+- Testado (testing_agent iteration_13): backend 22/22, frontend 3/3. Testes em `/app/backend/tests/test_das_pdf.py`.
+
 ## Atualização (01/10/2026) — Página 4: Apuração (tabela de períodos)
 - Nova tela `/app/frontend/public/pgmei4.html` (HTML original do usuário), acessada ao clicar **Ok** na tela de emissão: `/pgmei4.html?cnpj=&ano=`.
 - Novo endpoint `GET /api/apuracao/{cnpj}/{ano}`: retorna os 12 períodos do ano.
