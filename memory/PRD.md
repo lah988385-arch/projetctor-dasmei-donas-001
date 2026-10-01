@@ -1,5 +1,13 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Página 3: Emitir Guia de Pagamento (DAS)
+- Nova página `/app/frontend/public/pgmei3.html` (HTML original do usuário): "Informe o Ano-Calendário" + botão Ok.
+- O item da navbar "Emitir Guia de Pagamento (DAS)" agora leva para `/pgmei3.html?cnpj=DIGITOS` (CNPJ preservado entre as telas via query string).
+- **Refatoração**: comportamento comum extraído para `/pgmei-shared.js` (namespace `window.PGMEI`) e `/pgmei-shared.css`, usados pelas páginas 2 e 3. Inclui: preenchimento de CNPJ/Nome via API, dropdown da navbar, popover "Acesso restrito", recriação do `bootstrap-select` (combo de ano) e banner de alerta.
+- O combo Ano-Calendário (2021-2026) e o dropdown da navbar começam fechados e abrem só no clique.
+- Botão Ok: sem ano → banner "Informe o Ano-Calendário antes de continuar."; com ano → spinner 2s + aviso de que a apuração ainda não existe (próxima tela pendente de HTML do usuário).
+- Testado (testing_agent iteration_7): frontend 100% (7/7), sem regressões na página 2.
+
 ## Atualização (01/10/2026) — Menu "Consulta Extrato/Pendências" com as 3 opções
 - A versão anterior da página 2 vinha com o `dropdown-menu` vazio (o SingleFile removeu os itens ocultos e o CSS dos glyphicons).
 - Substituí `/app/frontend/public/pgmei2.html` pelo novo HTML enviado pelo usuário (com o dropdown aberto), que preserva os 3 itens e o CSS dos ícones (`glyphicon-list-alt`, `glyphicon-saved`, `glyphicon-barcode`).
