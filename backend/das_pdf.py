@@ -30,6 +30,8 @@ SALARIO_MINIMO = {
     2026: 1621.00,
 }
 
+SELIC_MENSAL = 0.010841  # taxa mensal usada na apuração dos juros
+
 MESES_PT = [
     "janeiro", "fevereiro", "março", "abril", "maio", "junho",
     "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
@@ -52,7 +54,8 @@ def composicao_das(ano: int, uf: str, vencimento: date, pagamento: date) -> dict
     else:
         multa_pct = min(0.0033 * dias, 0.20)
         meses = (pagamento.year - vencimento.year) * 12 + (pagamento.month - vencimento.month)
-        juros_pct = 0.01 * max(meses, 1)
+        # 1% no mês do pagamento + Selic acumulada dos meses intermediários
+        juros_pct = 0.01 + SELIC_MENSAL * max(meses - 1, 0)
 
     tributos = []
     for codigo, denominacao, principal in (
@@ -415,3 +418,57 @@ def numero_apuracao(cnpj: str, pa: str) -> str:
     cnpj_num = "".join(ch for ch in cnpj if ch.isdigit())
     seq = (int(cnpj_num[:8] or 0) + int(pa)) % 10000
     return f"{cnpj_num[:8]}{pa}{seq:04d}"
+
+
+# ---------------------------------------------------------------------------
+# PIX (estudo) — BR Code estruturalmente válido com chave inexistente,
+# portanto NÃO pagável. Serve apenas para reproduzir a tela de pagamento.
+
+CHAVE_PIX_ESTUDO = "estudo@pgmei.invalido"
+
+
+def _crc16(payload: str) -> str:
+    crc = 0xFFFF
+    for byte in payload.encode("utf-8"):
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return f"{crc:04X}"
+
+
+def _emv(tag: str, valor: str) -> str:
+    return f"{tag}{len(valor):02d}{valor}"
+
+
+def codigo_pix_estudo(valor: float, identificador: str) -> str:
+    """BR Code (PIX copia e cola) para a tela de estudo."""
+    conta = _emv("00", "br.gov.bcb.pix") + _emv("01", CHAVE_PIX_ESTUDO)
+    payload = (
+        _emv("00", "01")
+        + _emv("01", "12")
+        + _emv("26", conta)
+        + _emv("52", "0000")
+        + _emv("53", "986")
+        + _emv("54", f"{valor:.2f}")
+        + _emv("58", "BR")
+        + _emv("59", "DOCUMENTO DE ESTUDO")
+        + _emv("60", "BRASILIA")
+        + _emv("62", _emv("05", identificador[:25]))
+        + "6304"
+    )
+    return payload + _crc16(payload)
+
+
+def qrcode_base64(conteudo: str) -> str:
+    """QR Code em PNG base64 (data URI)."""
+    import base64
+    import qrcode
+
+    qr = qrcode.QRCode(version=None, box_size=8, border=2,
+                       error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(conteudo)
+    qr.make(fit=True)
+    imagem = qr.make_image(fill_color="#002059", back_color="white")
+    buffer = BytesIO()
+    imagem.save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()

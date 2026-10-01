@@ -294,6 +294,34 @@ document.addEventListener('DOMContentLoaded', function () {
   var dataPagamento = document.getElementById('dataPagamentoInformada');
   var selecionarTodos = document.getElementById('selecionarTodos');
   var btnEmitir = document.getElementById('btnEmitirDas');
+  var btnPagar = document.getElementById('btnPagarOnline');
+  if (btnPagar) btnPagar.removeAttribute('disabled');
+
+  // Sem nenhum período marcado, o PGMEI apura automaticamente os débitos em aberto
+  function periodosMarcados() {
+    return Array.prototype.map.call(
+      tbody.querySelectorAll('.paSelecionado:checked'), function (c) { return c.value; }
+    );
+  }
+
+  function temDebitoEmAberto() {
+    return tbody.querySelectorAll('.situacaoPa.devedor').length > 0;
+  }
+
+  function seguirPara(pagina, botao) {
+    var marcados = periodosMarcados();
+    if (!marcados.length && !temDebitoEmAberto()) {
+      window.PGMEI.alerta('Não há débitos em aberto. Selecione ao menos um período de apuração.');
+      return;
+    }
+    botao.classList.add('is-loading');
+    setTimeout(function () {
+      window.PGMEI.mostrarCarregando();
+      window.location.href = pagina + '?cnpj=' + cnpj + '&ano=' + ano
+        + '&pas=' + marcados.join(',')
+        + '&dt=' + encodeURIComponent(dataPagamento ? dataPagamento.value : '');
+    }, 2000);
+  }
 
   // sincroniza o combo com o ano da URL
   if (select) {
@@ -368,20 +396,15 @@ document.addEventListener('DOMContentLoaded', function () {
     window.PGMEI.spinnerLadda(btnEmitir);
     btnEmitir.addEventListener('click', function (e) {
       e.preventDefault();
-      var marcados = Array.prototype.map.call(
-        tbody.querySelectorAll('.paSelecionado:checked'), function (c) { return c.value; }
-      );
-      if (!marcados.length) {
-        window.PGMEI.alerta('Selecione ao menos um período de apuração.');
-        return;
-      }
-      btnEmitir.classList.add('is-loading');
-      setTimeout(function () {
-        window.PGMEI.mostrarCarregando();
-        window.location.href = '/pgmei5.html?cnpj=' + cnpj + '&ano=' + ano
-          + '&pas=' + marcados.join(',')
-          + '&dt=' + encodeURIComponent(dataPagamento ? dataPagamento.value : '');
-      }, 2000);
+      seguirPara('/pgmei5.html', btnEmitir);
+    });
+  }
+
+  if (btnPagar) {
+    window.PGMEI.spinnerLadda(btnPagar);
+    btnPagar.addEventListener('click', function (e) {
+      e.preventDefault();
+      seguirPara('/pgmei6.html', btnPagar);
     });
   }
 });

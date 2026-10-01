@@ -11,7 +11,8 @@ from typing import Optional, List
 import uuid
 from datetime import datetime, timezone, date, timedelta
 import httpx
-from das_pdf import gerar_pdf_das, numero_apuracao, numero_documento
+from das_pdf import (gerar_pdf_das, numero_apuracao, numero_documento,
+                     composicao_das, brl, codigo_pix_estudo, qrcode_base64)
 
 
 ROOT_DIR = Path(__file__).parent
@@ -245,22 +246,41 @@ async def apuracao(cnpj: str, ano: int):
     hoje = datetime.now(timezone.utc).date()
     ultimo_dia = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)
 
-    periodos = [
-        PeriodoApuracao(
+    vencimentos = {mes: _vencimento_das(ano, mes) for mes in range(1, 13)}
+    vencidos = sorted((mes for mes, v in vencimentos.items() if v < hoje),
+                      key=lambda m: vencimentos[m])
+    # Sem acesso à base da Receita, assume-se que os dois últimos vencidos estão em aberto
+    devedores = set(vencidos[-2:])
+
+    periodos = []
+    for mes in range(1, 13):
+        venc = vencimentos[mes]
+        if venc >= hoje:
+            situacao = "A Vencer"
+        elif mes in devedores:
+            situacao = "Devedor"
+        else:
+            situacao = "Liquidado"
+
+        if situacao == "Liquidado":
+            valores = {k: "-" for k in ("principal", "multa", "juros", "total")}
+            data_vencimento = data_acolhimento = "-"
+        else:
+            comp = composicao_das(ano, "", venc, hoje)
+            valores = {k: f"R$ {brl(comp[k])}" for k in ("principal", "multa", "juros", "total")}
+            data_vencimento = venc.strftime("%d/%m/%Y")
+            data_acolhimento = (hoje if situacao == "Devedor" else venc).strftime("%d/%m/%Y")
+
+        periodos.append(PeriodoApuracao(
             pa=f"{ano}{mes:02d}",
             rotulo=f"{MESES_PT[mes - 1]}/{ano}",
             apurado="Sim",
-            situacao="Liquidado",
-            vencimento=_vencimento_das(ano, mes).strftime("%d/%m/%Y"),
-            principal="-",
-            multa="-",
-            juros="-",
-            total="-",
-            data_vencimento="-",
-            data_acolhimento="-",
-        )
-        for mes in range(1, 13)
-    ]
+            situacao=situacao,
+            vencimento=venc.strftime("%d/%m/%Y"),
+            data_vencimento=data_vencimento,
+            data_acolhimento=data_acolhimento,
+            **valores,
+        ))
 
     return ApuracaoResponse(
         cnpj=cnpj_num,
@@ -338,12 +358,18 @@ class DasGeradosResponse(BaseModel):
 async def _periodos_escolhidos(cnpj_num: str, ano: int, pas: List[str]):
     if not validar_cnpj(cnpj_num):
         raise HTTPException(status_code=400, detail="CNPJ inválido.")
-    if not pas:
-        raise HTTPException(status_code=400, detail="Selecione ao menos um período de apuração.")
     apurados = await apuracao(cnpj_num, ano)
-    escolhidos = [p for p in apurados.periodos if p.pa in pas]
-    if not escolhidos:
-        raise HTTPException(status_code=400, detail="Períodos informados não pertencem ao ano-calendário.")
+    if pas:
+        escolhidos = [p for p in apurados.periodos if p.pa in pas]
+        if not escolhidos:
+            raise HTTPException(status_code=400,
+                                detail="Períodos informados não pertencem ao ano-calendário.")
+    else:
+        # Nenhum período marcado: apura automaticamente todos os débitos em aberto
+        escolhidos = [p for p in apurados.periodos if p.situacao == "Devedor"]
+        if not escolhidos:
+            raise HTTPException(status_code=400,
+                                detail="Não há débitos em aberto neste ano-calendário.")
     return apurados, escolhidos
 
 
@@ -400,6 +426,55 @@ async def das_pdf_inline(cnpj: str, ano: int, pas: str, dt: Optional[str] = None
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{nome_arquivo}"'},
+    )
+
+
+class PixResponse(BaseModel):
+    cnpj_formatado: str
+    ano: int
+    valor: float
+    valor_formatado: str
+    codigo_pix: str
+    qrcode: str
+    data_pagamento: str
+    periodos: List[DasGeradoItem]
+
+
+@api_router.get("/das/pix/{cnpj}/{ano}", response_model=PixResponse)
+async def das_pix(cnpj: str, ano: int, pas: str = "", dt: Optional[str] = None):
+    """Dados do pagamento via PIX (documento de estudo — código não pagável)."""
+    cnpj_num = _only_digits(cnpj)
+    lista = [p for p in pas.split(",") if p.strip()]
+    apurados, escolhidos = await _periodos_escolhidos(cnpj_num, ano, lista)
+    pagamento = dt or apurados.data_pagamento
+
+    total = 0.0
+    for p in escolhidos:
+        venc = datetime.strptime(p.vencimento, "%d/%m/%Y").date()
+        total += composicao_das(ano, "", venc, datetime.strptime(pagamento, "%d/%m/%Y").date())["total"]
+    total = round(total, 2)
+
+    identificador = f"DAS{ano}{escolhidos[0].pa[4:6]}{cnpj_num[:6]}"
+    codigo = codigo_pix_estudo(total, identificador)
+
+    return PixResponse(
+        cnpj_formatado=apurados.cnpj_formatado,
+        ano=ano,
+        valor=total,
+        valor_formatado=brl(total),
+        codigo_pix=codigo,
+        qrcode=qrcode_base64(codigo),
+        data_pagamento=pagamento,
+        periodos=[
+            DasGeradoItem(
+                pa=p.pa,
+                rotulo=p.rotulo,
+                numero_apuracao=numero_apuracao(cnpj_num, p.pa),
+                numero_das=numero_documento(cnpj_num, p.pa),
+                vencimento=p.vencimento,
+            )
+            for p in escolhidos
+        ],
     )
 
 
