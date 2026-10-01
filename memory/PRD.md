@@ -1,5 +1,13 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Overlay de carregamento + fim do flash na tela de emissão
+- **Causa**: o `pgmei-shared.css` era carregado no FIM do arquivo e a tela de emissão havia perdido as regras `.dropdown-menu>li>a` (removidas pelo SingleFile). Antes do primeiro paint, os itens do menu apareciam como links azuis sem estilo e o combo vazio como uma caixa branca.
+- **Fix**:
+  1. CSS **crítico inline no `<head>`** de `pgmei2.html`/`pgmei3.html` (esconde `.dropdown-menu` por padrão) + `<link>` do CSS compartilhado movido para o head.
+  2. Regras `.dropdown-menu>li>a` recuperadas da tela de início e adicionadas ao `pgmei-shared.css`.
+  3. **Overlay `#pg-loading`** (tela branca + spinner verde de 12 barras centralizado) como primeiro elemento do `<body>`: visível por padrão na página 3 e escondido após 2s; na página 2 fica oculto e é exibido no clique do link "Emitir Guia" (`mostrarCarregando`), deixando a transição contínua.
+- Testado (testing_agent iteration_11): frontend 100% — 31 amostras a ~90ms, zero flash de menu/combo; overlay visível de 0,3s a 1,8s e ausente após 2,4s.
+
 ## Atualização (01/10/2026) — Fim do flash "CNPJ: -- / Nome: Carregando..."
 - **Causa**: a consulta do nome só começava depois de entrar na tela interna, e os placeholders do HTML (grande, ~138KB inline) apareciam antes do JS externo rodar.
 - **Fix em 3 frentes**:
