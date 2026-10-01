@@ -1,5 +1,12 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Sessão persistente (corrige logout no F5)
+- **Causa do bug**: o app roda dentro de um `<iframe>` na raiz, então a URL do navegador nunca muda e o CNPJ existia só na URL interna do iframe. Um F5 recarregava a raiz e o iframe reiniciava em `/pgmei.html` (login).
+- **Fix**: o CNPJ passou a ser persistido em `sessionStorage` (chave `pgmei_cnpj`).
+  - `pgmei.html`: se há sessão, faz `location.replace('/pgmei2.html?cnpj=...')`; ao entrar com CNPJ válido, grava a sessão.
+  - `pgmei-shared.js`: `getCnpj()` lê da query string (persistindo) ou recupera do `sessionStorage`; `PGMEI.init()` redireciona para o login quando não há sessão (proteção de rota); o clique em "Sair" limpa a sessão.
+- Testado (testing_agent iteration_9): frontend 100% (8/8) — 3 refreshes seguidos mantêm a sessão, logout limpa, login com outro CNPJ não vaza dados.
+
 ## Atualização (01/10/2026) — Sessão: "Inicio" vs "Sair"
 - Correção em `ajustarLinksNavbar` (`pgmei-shared.js`): o item **Inicio** agora leva para `/pgmei2.html?cnpj=DIGITOS` (mantém o contribuinte logado na tela de início), e **somente** o item **Sair** leva para `/pgmei.html` (tela de identificação/login).
 - Papel das telas: `pgmei.html` = login por CNPJ | `pgmei2.html` = tela de INÍCIO do logado | `pgmei3.html` = Emitir Guia de Pagamento (DAS).
