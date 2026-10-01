@@ -1,5 +1,14 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Débitos em aberto + Pagar Online via PIX (pgmei6)
+- **Regra de situação dos períodos** (`apuracao()`): meses vencidos = **Liquidado**, exceto os **2 últimos vencidos (cálculo GLOBAL, atravessa anos)** = **Devedor**, e os não vencidos = **A Vencer**. Com "hoje" = 01/10/2026 isso reproduz exatamente o print do usuário: Jul/2026 R$ 95,13 e Ago/2026 R$ 85,57; Set-Dez R$ 82,05. Anos antigos ficam integralmente Liquidado.
+- **Juros**: 1% no mês do pagamento + `SELIC_MENSAL` (0,010841) por mês intermediário — foi o que fez Julho fechar em R$ 1,71 (antes 1,64), batendo com o documento oficial.
+- **Apuração automática dos débitos**: `_periodos_escolhidos()` aceita `pas` vazio e assume **todos os períodos Devedor**. Vale para `/api/das/pdf`, `/api/das/gerados` e `/api/das/pix`. Sem débitos → HTTP 400 "Não há débitos em aberto neste ano-calendário.".
+- **Botões da apuração**: `#btnPagarOnline` habilitado; helper `seguirPara()` compartilhado pelos dois botões — sem seleção segue com os débitos em aberto, e sem débitos mostra o banner vermelho.
+- **Nova tela `/pgmei6.html` (Pagar Online via PIX)**: construída sobre a estrutura do site (header/navbar/footer idênticos). QR Code, valor total destacado, data do pagamento, tabela dos períodos, campo "PIX copia e cola" com botão **Copiar código PIX** e aviso de estudo. Layout próprio (`#pix-grid`) porque o SingleFile removeu as regras `col-md-5/7`.
+- Novo `GET /api/das/pix/{cnpj}/{ano}?pas=&dt=`: BR Code EMV com CRC16 (`codigo_pix_estudo`) + QR em PNG base64 (`qrcode_base64`). **Chave PIX inexistente (`estudo@pgmei.invalido`) → NÃO pagável.**
+- Testado (testing_agent iterations 15 e 16): backend 35/35, frontend 100%.
+
 ## Atualização (01/10/2026) — Tela "DAS gerados" (pgmei5) + DAS consolidado
 - Nova tela `/app/frontend/public/pgmei5.html` (HTML original do usuário): painel **"DAS gerados:"** com Período de Apuração, Número da Apuração, Número do DAS e Data de Vencimento, mais os botões **Imprimir/Visualizar PDF** e **Voltar**.
 - O botão `#btnEmitirDas` da apuração **não baixa mais o PDF**: agora navega para `/pgmei5.html?cnpj=&ano=&pas=&dt=` após o spinner de 2s. O PDF só aparece ao clicar em "Imprimir/Visualizar PDF".
