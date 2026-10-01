@@ -1,6 +1,13 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
-## Atualização (01/10/2026) — Página inicial = HTML original do usuário
+## Atualização (01/10/2026) — Próxima página (dados do contribuinte) + consulta por CNPJ
+- Nova página `/app/frontend/public/pgmei2.html` (HTML original enviado pelo usuário), servida após o "Continuar".
+- Ao enviar um CNPJ válido na home, o botão mantém o spinner e navega para `/pgmei2.html?cnpj=DIGITOS`.
+- A página 2 preenche **CNPJ** e **Nome** chamando o novo endpoint `GET /api/consulta-cnpj/{cnpj}`.
+- Backend (`server.py`): endpoint consulta a **BrasilAPI** (`https://brasilapi.com.br/api/cnpj/v1/{cnpj}`, pública, sem chave) via httpx; retorna razão social real; fallback "Contribuinte não localizado" para CNPJ inexistente/erro. Registra em `db.consultas`.
+- Testado (testing_agent iteration_4): backend 100% (5/5), frontend 100%. BrasilAPI ao vivo retornando nomes reais.
+
+## Atualização (01/10/2026) — HTML original como página inicial
 - A página inicial agora usa o **arquivo HTML original salvo da Receita** (SingleFile), servido em `/app/frontend/public/pgmei.html`, garantindo fidelidade 100%.
 - `PGMEIHome.tsx` renderiza um `<iframe src="/pgmei.html">` em tela cheia, isolando o Bootstrap 3 do CSS/Tailwind do React.
 - Script injetado no fim do `pgmei.html`: máscara do CNPJ, validação de 14 dígitos, spinner no botão "Continuar" e POST para `/api/identificacao` (mesma origem). Exibe alerta de sucesso/erro abaixo do form.
