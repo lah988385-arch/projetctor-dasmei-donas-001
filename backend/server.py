@@ -11,7 +11,7 @@ from typing import Optional, List
 import uuid
 from datetime import datetime, timezone, date, timedelta
 import httpx
-from das_pdf import gerar_pdf_das
+from das_pdf import gerar_pdf_das, numero_apuracao, numero_documento
 
 
 ROOT_DIR = Path(__file__).parent
@@ -313,6 +313,89 @@ async def das_pdf(payload: DasPdfRequest):
     })
 
     nome_arquivo = f"DAS_{cnpj_num}_{payload.ano}_estudo.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{nome_arquivo}"'},
+    )
+
+
+class DasGeradoItem(BaseModel):
+    pa: str
+    rotulo: str
+    numero_apuracao: str
+    numero_das: str
+    vencimento: str
+
+
+class DasGeradosResponse(BaseModel):
+    cnpj_formatado: str
+    ano: int
+    data_pagamento: str
+    itens: List[DasGeradoItem]
+
+
+async def _periodos_escolhidos(cnpj_num: str, ano: int, pas: List[str]):
+    if not validar_cnpj(cnpj_num):
+        raise HTTPException(status_code=400, detail="CNPJ inválido.")
+    if not pas:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um período de apuração.")
+    apurados = await apuracao(cnpj_num, ano)
+    escolhidos = [p for p in apurados.periodos if p.pa in pas]
+    if not escolhidos:
+        raise HTTPException(status_code=400, detail="Períodos informados não pertencem ao ano-calendário.")
+    return apurados, escolhidos
+
+
+@api_router.get("/das/gerados/{cnpj}/{ano}", response_model=DasGeradosResponse)
+async def das_gerados(cnpj: str, ano: int, pas: str, dt: Optional[str] = None):
+    """Resumo dos DAS gerados para os períodos selecionados."""
+    cnpj_num = _only_digits(cnpj)
+    lista = [p for p in pas.split(",") if p.strip()]
+    apurados, escolhidos = await _periodos_escolhidos(cnpj_num, ano, lista)
+
+    await db.das_gerados.insert_one({
+        "id": str(uuid.uuid4()),
+        "cnpj": cnpj_num,
+        "ano": ano,
+        "periodos": [p.pa for p in escolhidos],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return DasGeradosResponse(
+        cnpj_formatado=apurados.cnpj_formatado,
+        ano=ano,
+        data_pagamento=dt or apurados.data_pagamento,
+        itens=[
+            DasGeradoItem(
+                pa=p.pa,
+                rotulo=p.rotulo,
+                numero_apuracao=numero_apuracao(cnpj_num, p.pa),
+                numero_das=numero_documento(cnpj_num, p.pa),
+                vencimento=p.vencimento,
+            )
+            for p in escolhidos
+        ],
+    )
+
+
+@api_router.get("/das/pdf/{cnpj}/{ano}")
+async def das_pdf_inline(cnpj: str, ano: int, pas: str, dt: Optional[str] = None):
+    """Abre o DAS consolidado em PDF (visualização/impressão)."""
+    cnpj_num = _only_digits(cnpj)
+    lista = [p for p in pas.split(",") if p.strip()]
+    apurados, escolhidos = await _periodos_escolhidos(cnpj_num, ano, lista)
+    consulta = await consulta_cnpj(cnpj_num)
+
+    pdf = gerar_pdf_das(
+        cnpj=apurados.cnpj_formatado,
+        nome=consulta.nome,
+        uf=consulta.uf or "",
+        ano=ano,
+        periodos=[p.model_dump() for p in escolhidos],
+        data_pagamento=dt or apurados.data_pagamento,
+    )
+    nome_arquivo = f"DAS_{cnpj_num}_{ano}_estudo.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",

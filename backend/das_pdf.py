@@ -210,12 +210,13 @@ def _qr_estudo(f: Folha, x: float, top: float, lado: float):
     f.c.restoreState()
 
 
-def _pagina(c: canvas.Canvas, cnpj_fmt: str, nome: str, uf: str, pa: str, rotulo_pa: str,
-            vencimento: date, pagamento: date, ano: int, pagina: str):
+def _pagina(c: canvas.Canvas, cnpj_fmt: str, nome: str, rotulo_pa: str, vencimento: date,
+            pagamento: date, entradas: list, somas: dict, pa_referencia: str, pagina: str):
     f = Folha(c)
-    comp = composicao_das(ano, uf, vencimento, pagamento)
-    numero = numero_documento("".join(ch for ch in cnpj_fmt if ch.isdigit()), pa)
-    codigo, linha = codigo_barras(comp["total"], "".join(ch for ch in cnpj_fmt if ch.isdigit()), pa)
+    cnpj_num = "".join(ch for ch in cnpj_fmt if ch.isdigit())
+    numero = numero_documento(cnpj_num, pa_referencia)
+    codigo, linha = codigo_barras(somas["total"], cnpj_num, pa_referencia)
+    comp = somas
 
     _marca_estudo(f)
 
@@ -244,11 +245,13 @@ def _pagina(c: canvas.Canvas, cnpj_fmt: str, nome: str, uf: str, pa: str, rotulo
     f.texto(42, 178, 6, "Observações", cor=AZUL)
     f.texto(481, 190, 6, "Valor Total do Documento", cor=AZUL)
 
-    f.texto(63, 135, 9, cnpj_fmt, negrito=True)
+    f.texto(142, 135, 9, cnpj_fmt, negrito=True, alinhamento="right")
     f.texto(159, 134, 11, nome[:52], negrito=True)
-    f.texto(79, 159, 11, rotulo_pa, negrito=True)
-    f.texto(214, 159, 11, vencimento.strftime("%d/%m/%Y"), negrito=True)
-    f.texto(322, 159, 11, numero, negrito=True)
+    # período consolidado ocupa mais espaço: reduz a fonte para caber na caixa
+    f.texto(142, 160 if " a " in rotulo_pa else 159, 8 if " a " in rotulo_pa else 11,
+            rotulo_pa, negrito=True, alinhamento="right")
+    f.texto(268, 159, 11, vencimento.strftime("%d/%m/%Y"), negrito=True, alinhamento="right")
+    f.texto(438, 159, 11, numero, negrito=True, alinhamento="right")
     f.texto(552, 167, 14, pagamento.strftime("%d/%m/%Y"), negrito=True,
             cor=colors.white, alinhamento="right")
     f.texto(552, 203, 14, brl(comp["total"]), negrito=True,
@@ -272,16 +275,22 @@ def _pagina(c: canvas.Canvas, cnpj_fmt: str, nome: str, uf: str, pa: str, rotulo
     for titulo, x in (("Principal", 342), ("Multa", 409), ("Juros", 476), ("Total", 552)):
         f.texto(x, 253, 7, titulo, negrito=True, cor=AZUL, alinhamento="right")
 
+    compacto = len(entradas) > 13
     top = 264
-    for t in comp["tributos"]:
-        f.texto(44, top, 7, t["codigo"], mono=True)
-        f.texto(74, top, 7, t["denominacao"], mono=True)
+    for t in entradas:
+        pa = t["pa"]
         complemento = f"{t['uf']} - {pa[4:6]}/{pa[:4]}" if t["uf"] else f"{pa[4:6]}/{pa[:4]}"
-        f.texto(74, top + 12, 7, complemento, mono=True)
+        f.texto(44, top, 7, t["codigo"], mono=True)
+        if compacto:
+            f.texto(74, top, 7, f"{t['denominacao']}  {complemento}", mono=True)
+        else:
+            f.texto(74, top, 7, t["denominacao"], mono=True)
+            f.texto(74, top + 12, 7, complemento, mono=True)
+        deslocamento = 0 if compacto else 2
         for valor, x in ((t["principal"], 342), (t["multa"], 409),
                          (t["juros"], 476), (t["total"], 552)):
-            f.texto(x, top + 2, 7, brl(valor), mono=True, alinhamento="right")
-        top += 26
+            f.texto(x, top + deslocamento, 7, brl(valor), mono=True, alinhamento="right")
+        top += 14 if compacto else 26
 
     f.texto(74, top + 6, 7, "Totais", mono=True, negrito=True)
     for valor, x in ((comp["principal"], 342), (comp["multa"], 409),
@@ -338,33 +347,71 @@ def _pagina(c: canvas.Canvas, cnpj_fmt: str, nome: str, uf: str, pa: str, rotulo
 
 def gerar_pdf_das(cnpj: str, nome: str, uf: str, ano: int, periodos: list,
                   data_pagamento: str) -> bytes:
-    """Gera o PDF com um DAS por período de apuração selecionado."""
+    """Gera um ÚNICO DAS consolidado com os valores de todos os períodos selecionados.
+
+    Regra do PGMEI: "Quando selecionado mais de um período de apuração (PA),
+    será gerado um único DAS consolidado contendo os valores de todos os PA".
+    """
     try:
         pagamento = datetime.strptime(data_pagamento, "%d/%m/%Y").date()
     except (ValueError, TypeError):
         pagamento = date.today()
+
+    ordenados = sorted(periodos, key=lambda p: p["pa"])
+    entradas = []
+    for p in ordenados:
+        vencimento = datetime.strptime(p["vencimento"], "%d/%m/%Y").date()
+        comp = composicao_das(ano, uf or "", vencimento, pagamento)
+        for t in comp["tributos"]:
+            entradas.append({**t, "pa": p["pa"]})
+
+    somas = {
+        "inss": round(sum(t["principal"] for t in entradas if t["codigo"] == "0151"), 2),
+        "icms": round(sum(t["principal"] for t in entradas if t["codigo"] == "0083"), 2),
+        "iss": round(sum(t["principal"] for t in entradas if t["codigo"] == "0153"), 2),
+        "principal": round(sum(t["principal"] for t in entradas), 2),
+        "multa": round(sum(t["multa"] for t in entradas), 2),
+        "juros": round(sum(t["juros"] for t in entradas), 2),
+        "total": round(sum(t["total"] for t in entradas), 2),
+    }
+
+    def rotulo(pa):
+        return f"{MESES_PT[int(pa[4:6]) - 1]}/{pa[:4]}"
+
+    if len(ordenados) == 1:
+        rotulo_pa = rotulo(ordenados[0]["pa"])
+    else:
+        primeiro, ultimo = ordenados[0]["pa"], ordenados[-1]["pa"]
+        rotulo_pa = f"{primeiro[4:6]}/{primeiro[:4]} a {ultimo[4:6]}/{ultimo[:4]}"
+
+    vencimento_doc = max(
+        datetime.strptime(p["vencimento"], "%d/%m/%Y").date() for p in ordenados
+    )
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     c.setTitle(f"DAS {cnpj} - {ano} (documento de estudo)")
     c.setAuthor("PGMEI - clone de estudo")
 
-    total = len(periodos)
-    for i, p in enumerate(periodos, start=1):
-        mes = int(p["pa"][4:6])
-        _pagina(
-            c,
-            cnpj_fmt=cnpj,
-            nome=nome,
-            uf=uf or "",
-            pa=p["pa"],
-            rotulo_pa=f"{MESES_PT[mes - 1]}/{p['pa'][:4]}",
-            vencimento=datetime.strptime(p["vencimento"], "%d/%m/%Y").date(),
-            pagamento=pagamento,
-            ano=ano,
-            pagina=f"{i}/{total}",
-        )
-        c.showPage()
-
+    _pagina(
+        c,
+        cnpj_fmt=cnpj,
+        nome=nome,
+        rotulo_pa=rotulo_pa,
+        vencimento=vencimento_doc,
+        pagamento=pagamento,
+        entradas=entradas,
+        somas=somas,
+        pa_referencia=ordenados[0]["pa"],
+        pagina="1/1",
+    )
+    c.showPage()
     c.save()
     return buffer.getvalue()
+
+
+def numero_apuracao(cnpj: str, pa: str) -> str:
+    """Número da apuração: base do CNPJ + ano + mês + sequencial."""
+    cnpj_num = "".join(ch for ch in cnpj if ch.isdigit())
+    seq = (int(cnpj_num[:8] or 0) + int(pa)) % 10000
+    return f"{cnpj_num[:8]}{pa}{seq:04d}"
