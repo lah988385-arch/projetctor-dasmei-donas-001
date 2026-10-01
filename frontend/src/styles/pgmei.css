@@ -309,7 +309,9 @@
 .pgmei-captcha-logo strong { font-size: 10px; color: #777; }
 
 /* ---- Alertas de resposta -------------------------------------------------- */
+.pgmei-root form::after { content: ""; display: table; clear: both; }
 .pgmei-alert {
+  clear: both;
   margin-top: 16px;
   padding: 12px 15px;
   border: 1px solid transparent;
