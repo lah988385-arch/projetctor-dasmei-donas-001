@@ -131,9 +131,10 @@
 #pgmei-banner .pgmei-banner-close{flex:0 0 auto;background:none;border:none;color:#fff;font-size:20px;line-height:1;cursor:pointer;opacity:.9;padding:0 4px}
 #pgmei-banner .pgmei-banner-close:hover{opacity:1}
 .ladda-button.is-loading .ladda-label{visibility:hidden}
-.ladda-button.is-loading{pointer-events:none;opacity:.9}
-.ladda-button.is-loading .ladda-spinner{opacity:1!important;margin-top:0!important}
-.pgmei-spin{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:pgmei-rot .6s linear infinite;vertical-align:middle}
+.ladda-button.is-loading{pointer-events:none}
+.ladda-button .ladda-spinner{opacity:0}
+.ladda-button.is-loading .ladda-spinner{opacity:1!important;left:50%!important;top:50%!important;margin:0!important;transform:translate(-50%,-50%)}
+.pgmei-spin{display:inline-block;width:22px;height:22px;border:3px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:pgmei-rot .7s linear infinite}
 @keyframes pgmei-rot{to{transform:rotate(360deg)}}
 </style>
 <script>
@@ -200,14 +201,19 @@
           return;
         }
         btn.classList.add('is-loading');
+        var startedAt=Date.now();
         fetch('/api/identificacao',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({cnpj:cnpj})
         }).then(function(r){return r.json();}).then(function(data){
           if(data.valido){
-            // mantém o spinner e segue para a próxima página
-            window.location.href='/pgmei2.html?cnpj='+onlyDigits(cnpj);
+            // garante pelo menos 2s de carregamento antes de ir para a próxima página
+            var elapsed=Date.now()-startedAt;
+            var wait=Math.max(2000-elapsed,0);
+            setTimeout(function(){
+              window.location.href='/pgmei2.html?cnpj='+onlyDigits(cnpj);
+            },wait);
           } else {
             btn.classList.remove('is-loading');
             showBanner('err',data.mensagem||'CNPJ inválido. Verifique os dígitos informados.');
