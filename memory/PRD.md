@@ -1,5 +1,13 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Fim do flash "CNPJ: -- / Nome: Carregando..."
+- **Causa**: a consulta do nome só começava depois de entrar na tela interna, e os placeholders do HTML (grande, ~138KB inline) apareciam antes do JS externo rodar.
+- **Fix em 3 frentes**:
+  1. `pgmei.html`: a consulta `/api/consulta-cnpj` roda **em paralelo ao spinner**; a navegação usa `Promise.all([consulta, minimo2s])`, então só avança com o nome pronto (se a API demorar, o spinner espera).
+  2. `pgmei2.html`/`pgmei3.html`: script **inline** logo após o bloco do contribuinte preenche `#pg-cnpj`/`#pg-nome` a partir do `sessionStorage` no primeiro paint.
+  3. `pgmei-shared.js`: `preencherContribuinte()` usa o cache antes do fetch e o atualiza depois; `encerrarSessao()` limpa `pgmei_cnpj`, `pgmei_nome` e `pgmei_cnpj_fmt`.
+- Testado (testing_agent iteration_10): frontend 100% (5/5) com polling de ~80-100ms — zero flash no login, no refresh e ao navegar; sem vazamento do nome anterior após o logout.
+
 ## Atualização (01/10/2026) — Sessão persistente (corrige logout no F5)
 - **Causa do bug**: o app roda dentro de um `<iframe>` na raiz, então a URL do navegador nunca muda e o CNPJ existia só na URL interna do iframe. Um F5 recarregava a raiz e o iframe reiniciava em `/pgmei.html` (login).
 - **Fix**: o CNPJ passou a ser persistido em `sessionStorage` (chave `pgmei_cnpj`).
