@@ -131,11 +131,12 @@
 #pgmei-banner .pgmei-banner-close{flex:0 0 auto;background:none;border:none;color:#fff;font-size:20px;line-height:1;cursor:pointer;opacity:.9;padding:0 4px}
 #pgmei-banner .pgmei-banner-close:hover{opacity:1}
 .ladda-button.is-loading .ladda-label{visibility:hidden}
-.ladda-button.is-loading{pointer-events:none}
+.ladda-button.is-loading{pointer-events:none;background-image:none;background-color:#7cb87c;border-color:#6aad6a}
 .ladda-button .ladda-spinner{opacity:0}
-.ladda-button.is-loading .ladda-spinner{opacity:1!important;left:50%!important;top:50%!important;margin:0!important;transform:translate(-50%,-50%)}
-.pgmei-spin{display:inline-block;width:22px;height:22px;border:3px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:pgmei-rot .7s linear infinite}
-@keyframes pgmei-rot{to{transform:rotate(360deg)}}
+.ladda-button.is-loading .ladda-spinner{opacity:1!important;left:0!important;top:0!important;width:100%!important;height:100%!important;margin:0!important;transform:none!important;display:flex;align-items:center;justify-content:center}
+.pgmei-ladda{position:relative;width:26px;height:26px;display:inline-block}
+.pgmei-ladda i{position:absolute;top:1px;left:50%;width:2px;height:7px;margin-left:-1px;background:#fff;border-radius:2px;transform-origin:1px 12px;opacity:.15;animation:pgmei-fade 1s linear infinite}
+@keyframes pgmei-fade{0%{opacity:1}100%{opacity:.15}}
 </style>
 <script>
 (function(){
@@ -155,7 +156,15 @@
     var form=document.getElementById('identificacao');
     var btn=document.getElementById('continuar');
     var spinner=btn?btn.querySelector('.ladda-spinner'):null;
-    if(spinner){spinner.innerHTML='<span class="pgmei-spin"></span>';}
+    if(spinner){
+      var bars='';
+      for(var k=0;k<12;k++){
+        var rot=k*30;
+        var delay=-(12-k)/12;
+        bars+='<i style="transform:rotate('+rot+'deg);animation-delay:'+delay.toFixed(3)+'s"></i>';
+      }
+      spinner.innerHTML='<span class="pgmei-ladda">'+bars+'</span>';
+    }
 
     var banner=document.createElement('div');
     banner.id='pgmei-banner';
