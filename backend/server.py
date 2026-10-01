@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,6 +11,7 @@ from typing import Optional, List
 import uuid
 from datetime import datetime, timezone, date, timedelta
 import httpx
+from das_pdf import gerar_pdf_das
 
 
 ROOT_DIR = Path(__file__).parent
@@ -59,6 +60,7 @@ class ConsultaCnpjResponse(BaseModel):
     cnpj_formatado: str
     nome: str
     situacao: Optional[str] = None
+    uf: Optional[str] = None
     encontrado: bool
 
 
@@ -174,6 +176,7 @@ async def consulta_cnpj(cnpj: str):
     formatado = formatar_cnpj(cnpj_num)
     nome = None
     situacao = None
+    uf = None
     encontrado = False
 
     if validar_cnpj(cnpj_num):
@@ -186,6 +189,7 @@ async def consulta_cnpj(cnpj: str):
                 data = resp.json()
                 nome = (data.get("razao_social") or data.get("nome_fantasia") or "").strip()
                 situacao = data.get("descricao_situacao_cadastral")
+                uf = data.get("uf")
                 encontrado = bool(nome)
         except Exception as exc:  # falha de rede/timeout — segue com fallback
             logger.warning("Falha ao consultar BrasilAPI: %s", exc)
@@ -208,6 +212,7 @@ async def consulta_cnpj(cnpj: str):
         cnpj_formatado=formatado,
         nome=nome,
         situacao=situacao,
+        uf=uf,
         encontrado=encontrado,
     )
 
@@ -265,6 +270,53 @@ async def apuracao(cnpj: str, ano: int):
         data_pagamento_inicio=hoje.strftime("%d/%m/%Y"),
         data_pagamento_fim=ultimo_dia.strftime("%d/%m/%Y"),
         periodos=periodos,
+    )
+
+
+class DasPdfRequest(BaseModel):
+    cnpj: str
+    ano: int
+    periodos: List[str]
+    data_pagamento: str
+
+
+@api_router.post("/das/pdf")
+async def das_pdf(payload: DasPdfRequest):
+    """Gera o PDF de resumo do DAS (documento de estudo, sem validade legal)."""
+    cnpj_num = _only_digits(payload.cnpj)
+    if not validar_cnpj(cnpj_num):
+        raise HTTPException(status_code=400, detail="CNPJ inválido.")
+    if not payload.periodos:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um período de apuração.")
+
+    apurados = await apuracao(cnpj_num, payload.ano)
+    escolhidos = [p.model_dump() for p in apurados.periodos if p.pa in payload.periodos]
+    if not escolhidos:
+        raise HTTPException(status_code=400, detail="Períodos informados não pertencem ao ano-calendário.")
+
+    consulta = await consulta_cnpj(cnpj_num)
+    pdf = gerar_pdf_das(
+        cnpj=apurados.cnpj_formatado,
+        nome=consulta.nome,
+        uf=consulta.uf or "",
+        ano=payload.ano,
+        periodos=escolhidos,
+        data_pagamento=payload.data_pagamento,
+    )
+
+    await db.das_gerados.insert_one({
+        "id": str(uuid.uuid4()),
+        "cnpj": cnpj_num,
+        "ano": payload.ano,
+        "periodos": payload.periodos,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    nome_arquivo = f"DAS_{cnpj_num}_{payload.ano}_estudo.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{nome_arquivo}"'},
     )
 
 
