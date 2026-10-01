@@ -139,3 +139,10 @@ Reconstrução fiel, para estudo de front-end, da tela inicial do PGMEI (entrada
 ## Próximas tarefas
 - Definir dados fake da próxima tela (se evoluir o fluxo)
 - Decidir se mantém 100% idêntico ou começa a dar cara própria
+
+## Implementado (2026-06 — ajuste de UX no menu bloqueado)
+- Menu "Consulta Extrato/Pendências": as 3 opções seguem bloqueadas (fiel ao site real), mas sem "mouse travado"
+  - `cursor: not-allowed` -> `cursor: pointer`, texto mais legível (#8a8a8a) e highlight no hover
+  - Popover "Acesso restrito" redesenhado: seta apontando para o item, fade/slide suave, posicionamento automático (acima/abaixo + clamp na viewport), toggle no clique, abre no hover e fecha ao sair do menu
+  - Arquivos: `frontend/public/pgmei-shared.css`, `frontend/public/pgmei-shared.js` (afeta pgmei2..pgmei6)
+- Testado via screenshot: cursor = pointer e popover visível/posicionado corretamente
