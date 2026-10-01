@@ -112,6 +112,23 @@
  </ul>
  
  </section>
+<script>
+/* Preenche o contribuinte imediatamente a partir da sessão, evitando o flash de "--/Carregando..." */
+(function(){
+  try{
+    var p=new URLSearchParams(window.location.search);
+    var d=(p.get('cnpj')||'').replace(/\D/g,'')||(sessionStorage.getItem('pgmei_cnpj')||'');
+    var nome=sessionStorage.getItem('pgmei_nome')||'';
+    var fmt=sessionStorage.getItem('pgmei_cnpj_fmt')||'';
+    if(d.length===14&&!fmt){
+      fmt=d.slice(0,2)+'.'+d.slice(2,5)+'.'+d.slice(5,8)+'/'+d.slice(8,12)+'-'+d.slice(12);
+    }
+    var c=document.getElementById('pg-cnpj'), n=document.getElementById('pg-nome');
+    if(c&&fmt)c.textContent=fmt;
+    if(n&&nome)n.textContent=nome;
+  }catch(e){}
+})();
+</script>
  <section class=row>
  
  <div class="well col-md-12" role=main>

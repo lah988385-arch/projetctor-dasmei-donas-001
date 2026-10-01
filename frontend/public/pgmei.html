@@ -219,24 +219,39 @@
         }
         btn.classList.add('is-loading');
         var startedAt=Date.now();
+        var digitos=onlyDigits(cnpj);
+        // Busca o nome já aqui, enquanto o spinner roda, para a próxima tela abrir preenchida
+        var consulta=fetch('/api/consulta-cnpj/'+digitos)
+          .then(function(r){return r.json();})
+          .catch(function(){return null;});
+
         fetch('/api/identificacao',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({cnpj:cnpj})
         }).then(function(r){return r.json();}).then(function(data){
-          if(data.valido){
-            // guarda a sessão e garante pelo menos 2s de carregamento
-            var digitos=onlyDigits(cnpj);
-            try{sessionStorage.setItem('pgmei_cnpj',digitos);}catch(e){}
-            var elapsed=Date.now()-startedAt;
-            var wait=Math.max(2000-elapsed,0);
-            setTimeout(function(){
-              window.location.href='/pgmei2.html?cnpj='+digitos;
-            },wait);
-          } else {
+          if(!data.valido){
             btn.classList.remove('is-loading');
             showBanner('err',data.mensagem||'CNPJ inválido. Verifique os dígitos informados.');
+            return;
           }
+          // só navega quando o nome estiver pronto E o carregamento mínimo de 2s tiver passado
+          var minimo=new Promise(function(ok){
+            setTimeout(ok,Math.max(2000-(Date.now()-startedAt),0));
+          });
+          Promise.all([consulta,minimo]).then(function(res){
+            var info=res[0];
+            try{
+              sessionStorage.setItem('pgmei_cnpj',digitos);
+              if(info&&info.nome){
+                sessionStorage.setItem('pgmei_nome',info.nome);
+                sessionStorage.setItem('pgmei_cnpj_fmt',info.cnpj_formatado||'');
+              }else{
+                sessionStorage.removeItem('pgmei_nome');
+              }
+            }catch(e){}
+            window.location.href='/pgmei2.html?cnpj='+digitos;
+          });
         }).catch(function(){
           btn.classList.remove('is-loading');
           showBanner('err','Não foi possível processar agora. Tente novamente.');

@@ -25,7 +25,11 @@
   }
 
   function encerrarSessao() {
-    try { sessionStorage.removeItem('pgmei_cnpj'); } catch (e) {}
+    try {
+      sessionStorage.removeItem('pgmei_cnpj');
+      sessionStorage.removeItem('pgmei_nome');
+      sessionStorage.removeItem('pgmei_cnpj_fmt');
+    } catch (e) {}
   }
 
   function preencherContribuinte(cnpj) {
@@ -33,14 +37,25 @@
     var elNome = document.getElementById('pg-nome');
     if (elCnpj) elCnpj.textContent = cnpj ? maskCnpj(cnpj) : '--';
     if (!cnpj) { if (elNome) elNome.textContent = 'CNPJ não informado'; return; }
+
+    // Usa o nome já em cache (buscado durante o carregamento da tela de identificação)
+    var emCache = '';
+    try { emCache = sessionStorage.getItem('pgmei_nome') || ''; } catch (e) {}
+    if (elNome && emCache) elNome.textContent = emCache;
+
     fetch('/api/consulta-cnpj/' + cnpj)
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (elNome) elNome.textContent = data.nome || 'Contribuinte não localizado';
+        var nome = data.nome || 'Contribuinte não localizado';
+        if (elNome) elNome.textContent = nome;
         if (elCnpj && data.cnpj_formatado) elCnpj.textContent = data.cnpj_formatado;
+        try {
+          sessionStorage.setItem('pgmei_nome', nome);
+          sessionStorage.setItem('pgmei_cnpj_fmt', data.cnpj_formatado || '');
+        } catch (e) {}
       })
       .catch(function () {
-        if (elNome) elNome.textContent = 'Não foi possível consultar o nome agora.';
+        if (elNome && !emCache) elNome.textContent = 'Não foi possível consultar o nome agora.';
       });
   }
 
