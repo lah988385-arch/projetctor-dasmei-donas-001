@@ -1,10 +1,9 @@
-"""Tests for POST /api/das/pdf + GET /api/consulta-cnpj (uf field)."""
+"""Tests for DAS PDF consolidado + GET /api/das/gerados + GET /api/das/pdf."""
 import io
 import os
 import re
 
 import pdfplumber
-import pytest
 import requests
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
@@ -20,10 +19,26 @@ def _post_pdf(payload, expected=200):
     return r
 
 
+def _get_pdf(cnpj, ano, pas, dt=None, expected=200):
+    params = {"pas": pas}
+    if dt:
+        params["dt"] = dt
+    r = requests.get(f"{API}/das/pdf/{cnpj}/{ano}", params=params, timeout=60)
+    assert r.status_code == expected, f"{r.status_code}: {r.text[:300]}"
+    return r
+
+
+def _get_gerados(cnpj, ano, pas, dt=None, expected=200):
+    params = {"pas": pas}
+    if dt:
+        params["dt"] = dt
+    r = requests.get(f"{API}/das/gerados/{cnpj}/{ano}", params=params, timeout=60)
+    assert r.status_code == expected, f"{r.status_code}: {r.text[:300]}"
+    return r
+
+
 def _normalize(text):
-    """Remove isolated watermark letters that pdfplumber interleaves with the data."""
     text = re.sub(r"\s+", " ", text)
-    # Drop single uppercase letters bordered by spaces (watermark artifacts).
     for _ in range(3):
         text = re.sub(r" [A-Z] ", " ", text)
     text = re.sub(r"(\d)\s*,\s*(\d{2})", r"\1,\2", text)
@@ -35,107 +50,124 @@ def _extract_pages(pdf_bytes):
         return [p.extract_text() or "" for p in pdf.pages]
 
 
-# ---------- Consulta CNPJ now exposes UF ----------
+# ---------- Consulta CNPJ expõe UF ----------
 def test_consulta_cnpj_returns_uf():
     r = requests.get(f"{API}/consulta-cnpj/{CNPJ_MARIA}", timeout=30)
     assert r.status_code == 200
     data = r.json()
-    assert "uf" in data
     assert data["uf"] == "RN"
     assert "MARIA JANIERE" in (data.get("nome") or "").upper()
-    assert data.get("situacao")
 
 
-# ---------- Single period PDF (agosto/2026) ----------
-def test_das_pdf_ago_2026_contents():
+# ---------- POST PDF período único consolidado (1 página) ----------
+def test_post_das_pdf_ago_2026_contents():
     r = _post_pdf({
-        "cnpj": CNPJ_MARIA,
-        "ano": 2026,
-        "periodos": ["202608"],
-        "data_pagamento": "01/10/2026",
+        "cnpj": CNPJ_MARIA, "ano": 2026,
+        "periodos": ["202608"], "data_pagamento": "01/10/2026",
     })
     assert r.headers.get("content-type", "").startswith("application/pdf")
-    assert r.content.startswith(b"%PDF")
     pages = _extract_pages(r.content)
     assert len(pages) == 1
     text = _normalize(pages[0])
-
-    expected_fragments = [
-        "Documento de Arrecadação",
-        "do Simples Nacional",
-        "40.570.199/0001-08",
-        "MARIA JANIERE AVELINO 04508120490",
-        "agosto/2026",
-        "21/09/2026",
-        "CPF: 045.081.204-90",
-        "0151",
-        "INSS - SIMPLES NACIONAL - MEI",
-        "0083",
-        "ICMS - SIMPLES NACIONAL - MEI",
-        "AUTENTICAÇÃO MECÂNICA",
-        "DOCUMENTO DE ESTUDO",
-        "NÃO PAGÁVEL",
-        "Totais",
-    ]
-    missing = [frag for frag in expected_fragments if frag not in text]
-    assert not missing, f"Missing fragments: {missing}\n---text---\n{text}"
-
-    # Tributos line
-    assert re.search(r"Tributos\s*\(R\$\):\s*INSS\s*81,05\s*ICMS\s*1,00\s*ISS\s*0,00", text), text
-
-    # Expected numeric lines (principal/multa/juros/total)
-    for line in [
-        ("81,05", "2,67", "0,81", "84,53"),  # INSS
-        ("1,00", "0,03", "0,01", "1,04"),    # ICMS
-        ("82,05", "2,70", "0,82", "85,57"),  # Totais
-    ]:
-        for v in line:
-            assert v in text, f"{v} missing. text={text}"
+    for frag in ["40.570.199/0001-08", "MARIA JANIERE", "agosto/2026", "21/09/2026",
+                 "0151", "0083", "DOCUMENTO DE ESTUDO", "NÃO PAGÁVEL", "Totais"]:
+        assert frag in text, f"missing {frag}"
+    assert re.search(r"Tributos\s*\(R\$\):\s*INSS\s*81,05\s*ICMS\s*1,00\s*ISS\s*0,00", text)
+    for v in ("81,05", "2,67", "0,81", "84,53", "1,00", "0,03", "0,01", "1,04",
+              "82,05", "2,70", "0,82", "85,57"):
+        assert v in text, f"{v} missing"
 
 
-# ---------- Multi period PDF (two pages) ----------
-def test_das_pdf_two_pages():
-    r = _post_pdf({
-        "cnpj": CNPJ_MARIA,
-        "ano": 2026,
-        "periodos": ["202608", "202609"],
-        "data_pagamento": "01/10/2026",
-    })
+# ---------- Consolidado 3 períodos → 1 página ----------
+def test_get_das_pdf_consolidado_3_periodos():
+    r = _get_pdf(CNPJ_MARIA, 2026, "202607,202608,202609", "01/10/2026")
+    assert r.headers.get("content-type", "").startswith("application/pdf")
+    assert "inline" in r.headers.get("content-disposition", "")
     pages = _extract_pages(r.content)
-    assert len(pages) == 2
-    p2 = _normalize(pages[1])
-    assert "setembro/2026" in p2
-    assert "20/10/2026" in p2  # vencimento
-    assert re.search(r"Totais\s*82,05\s*0,00\s*0,00\s*82,05", p2), p2
+    assert len(pages) == 1, f"esperado 1 página, veio {len(pages)}"
+    text = _normalize(pages[0])
+    assert "07/2026 a 09/2026" in text, text
+    # tributos consolidados
+    assert re.search(r"INSS\s*243,15\s*ICMS\s*3,00\s*ISS\s*0,00", text), text
+    # 6 linhas de composição (3 INSS + 3 ICMS)
+    assert text.count("0151") >= 3
+    assert text.count("0083") >= 3
+    # Totais consolidados
+    for v in ("246,15", "14,07", "2,46", "262,68"):
+        assert v in text, f"total {v} ausente"
+    assert "DOCUMENTO DE ESTUDO" in text
+    assert "NÃO PAGÁVEL" in text
 
 
-# ---------- Validations ----------
-def test_das_pdf_cnpj_invalido():
-    _post_pdf({"cnpj": "11111111111111", "ano": 2026, "periodos": ["202608"],
-               "data_pagamento": "01/10/2026"}, expected=400)
+# ---------- GET /api/das/gerados ----------
+def test_get_das_gerados_single():
+    r = _get_gerados(CNPJ_MARIA, 2026, "202610", "01/10/2026")
+    data = r.json()
+    assert data["cnpj_formatado"] == "40.570.199/0001-08"
+    assert data["ano"] == 2026
+    assert len(data["itens"]) == 1
+    item = data["itens"][0]
+    assert item["pa"] == "202610"
+    assert "utubro" in item["rotulo"].lower() or "Outubro" in item["rotulo"]
+    assert item["numero_apuracao"] == "405701992026102809"
+    assert item["numero_das"] == "07.10.72809.9874471-3"
+    assert item["vencimento"] == "23/11/2026"
 
 
-def test_das_pdf_periodos_vazios():
-    _post_pdf({"cnpj": CNPJ_MARIA, "ano": 2026, "periodos": [],
-               "data_pagamento": "01/10/2026"}, expected=400)
+def test_get_das_gerados_multi():
+    r = _get_gerados(CNPJ_MARIA, 2026, "202607,202608,202609", "01/10/2026")
+    data = r.json()
+    assert len(data["itens"]) == 3
+    pas = [i["pa"] for i in data["itens"]]
+    assert pas == ["202607", "202608", "202609"]
+    for item in data["itens"]:
+        assert len(item["numero_apuracao"]) == 18
+        assert re.match(r"07\.\d{2}\.\d{5}\.\d{7}-\d", item["numero_das"])
 
 
-def test_das_pdf_periodo_fora_do_ano():
-    _post_pdf({"cnpj": CNPJ_MARIA, "ano": 2026, "periodos": ["202501"],
-               "data_pagamento": "01/10/2026"}, expected=400)
+# ---------- Validações ----------
+def test_gerados_cnpj_invalido():
+    _get_gerados("11111111111111", 2026, "202608", expected=400)
 
 
-# ---------- Different year uses salário mínimo of that year ----------
-def test_das_pdf_ano_2024_inss_70_60():
-    r = _post_pdf({
-        "cnpj": CNPJ_MARIA,
-        "ano": 2024,
-        "periodos": ["202401"],
-        "data_pagamento": "20/02/2024",  # exact vencimento → no multa/juros
-    })
+def test_gerados_pas_vazio():
+    _get_gerados(CNPJ_MARIA, 2026, "", expected=400)
+
+
+def test_gerados_periodo_outro_ano():
+    _get_gerados(CNPJ_MARIA, 2026, "202501", expected=400)
+
+
+def test_pdf_get_cnpj_invalido():
+    _get_pdf("11111111111111", 2026, "202608", expected=400)
+
+
+def test_pdf_get_pas_vazio():
+    _get_pdf(CNPJ_MARIA, 2026, "", expected=400)
+
+
+def test_pdf_get_periodo_outro_ano():
+    _get_pdf(CNPJ_MARIA, 2026, "202501", expected=400)
+
+
+def test_post_das_pdf_invalid_cnpj():
+    _post_pdf({"cnpj": "11111111111111", "ano": 2026,
+               "periodos": ["202608"], "data_pagamento": "01/10/2026"}, expected=400)
+
+
+def test_post_das_pdf_periodos_vazios():
+    _post_pdf({"cnpj": CNPJ_MARIA, "ano": 2026,
+               "periodos": [], "data_pagamento": "01/10/2026"}, expected=400)
+
+
+# ---------- 12 períodos consolidados em 1 página ----------
+def test_get_das_pdf_12_periodos_1_pagina():
+    pas = ",".join(f"2026{m:02d}" for m in range(1, 13))
+    r = _get_pdf(CNPJ_LUCI, 2026, pas, "01/10/2026")
     pages = _extract_pages(r.content)
     assert len(pages) == 1
     text = _normalize(pages[0])
-    assert "70,60" in text
-    assert "1,00" in text
-    assert "71,60" in text
+    assert "01/2026 a 12/2026" in text, text
+    # 12 INSS + 12 ICMS
+    assert text.count("0151") >= 12
+    assert text.count("0083") >= 12

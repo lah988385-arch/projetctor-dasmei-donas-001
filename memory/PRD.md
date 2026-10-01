@@ -1,5 +1,13 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Tela "DAS gerados" (pgmei5) + DAS consolidado
+- Nova tela `/app/frontend/public/pgmei5.html` (HTML original do usuário): painel **"DAS gerados:"** com Período de Apuração, Número da Apuração, Número do DAS e Data de Vencimento, mais os botões **Imprimir/Visualizar PDF** e **Voltar**.
+- O botão `#btnEmitirDas` da apuração **não baixa mais o PDF**: agora navega para `/pgmei5.html?cnpj=&ano=&pas=&dt=` após o spinner de 2s. O PDF só aparece ao clicar em "Imprimir/Visualizar PDF".
+- **Correção importante de regra de negócio**: o aviso da página oficial diz que "quando selecionado mais de um PA, será gerado um único DAS consolidado". O PDF passou a ser **1 única página consolidada** (antes era uma página por período), somando os tributos de todos os PAs. Layout compacto automático quando há mais de 13 entradas (ex: 12 meses = 24 linhas).
+- Novos endpoints: `GET /api/das/gerados/{cnpj}/{ano}?pas=&dt=` (resumo da tabela) e `GET /api/das/pdf/{cnpj}/{ano}?pas=&dt=` (PDF inline). Helper `_periodos_escolhidos()` centraliza as validações (400 para CNPJ inválido, `pas` vazio e período fora do ano). `numero_apuracao()` = base do CNPJ + ano + mês + sequencial.
+- Campos de identificação do PDF passaram a ser alinhados à direita (como no original), evitando transbordo do rótulo consolidado.
+- Testado (testing_agent iteration_14): backend 29/29, frontend 100%.
+
 ## Atualização (01/10/2026) — PDF real do DAS (documento de estudo)
 - Novo `POST /api/das/pdf` + `/app/backend/das_pdf.py`: gera o DAS em PDF com **uma página por período selecionado**.
 - **Fidelidade**: layout, cores (azul `#002059`, verde `#64A70B`), fontes e coordenadas foram extraídos do PDF oficial enviado pelo usuário (`pdfplumber`). O logo do Simples Nacional foi extraído do próprio PDF (`/app/backend/assets/simples_nacional.png`).
