@@ -1,5 +1,11 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Sessão: "Inicio" vs "Sair"
+- Correção em `ajustarLinksNavbar` (`pgmei-shared.js`): o item **Inicio** agora leva para `/pgmei2.html?cnpj=DIGITOS` (mantém o contribuinte logado na tela de início), e **somente** o item **Sair** leva para `/pgmei.html` (tela de identificação/login).
+- Papel das telas: `pgmei.html` = login por CNPJ | `pgmei2.html` = tela de INÍCIO do logado | `pgmei3.html` = Emitir Guia de Pagamento (DAS).
+- A "sessão" é representada pelo parâmetro `?cnpj=` na query string (não há autenticação real).
+- Testado (testing_agent iteration_8): frontend 100%.
+
 ## Atualização (01/10/2026) — Página 3: Emitir Guia de Pagamento (DAS)
 - Nova página `/app/frontend/public/pgmei3.html` (HTML original do usuário): "Informe o Ano-Calendário" + botão Ok.
 - O item da navbar "Emitir Guia de Pagamento (DAS)" agora leva para `/pgmei3.html?cnpj=DIGITOS` (CNPJ preservado entre as telas via query string).
