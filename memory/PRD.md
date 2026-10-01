@@ -1,5 +1,12 @@
 # PRD — PGMEI (Clone de Estudo) · Tela Inicial
 
+## Atualização (01/10/2026) — Menu "Consulta Extrato/Pendências" com as 3 opções
+- A versão anterior da página 2 vinha com o `dropdown-menu` vazio (o SingleFile removeu os itens ocultos e o CSS dos glyphicons).
+- Substituí `/app/frontend/public/pgmei2.html` pelo novo HTML enviado pelo usuário (com o dropdown aberto), que preserva os 3 itens e o CSS dos ícones (`glyphicon-list-alt`, `glyphicon-saved`, `glyphicon-barcode`).
+- Implementei em JS puro (não há Bootstrap/jQuery nas páginas salvas): toggle do dropdown (classe `open`), fechar ao clicar fora, e popover "Acesso restrito" para os itens `disabled`.
+- Itens: Consulta Extrato, Consulta Pendência no Simei, Consulta DAS Emitidos.
+- Testado (testing_agent iteration_5): backend 100%, frontend 100%, 6/6 casos.
+
 ## Atualização (01/10/2026) — Próxima página (dados do contribuinte) + consulta por CNPJ
 - Nova página `/app/frontend/public/pgmei2.html` (HTML original enviado pelo usuário), servida após o "Continuar".
 - Ao enviar um CNPJ válido na home, o botão mantém o spinner e navega para `/pgmei2.html?cnpj=DIGITOS`.
