@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 import uuid
 from datetime import datetime, timezone
+import httpx
 
 
 ROOT_DIR = Path(__file__).parent
@@ -51,6 +52,14 @@ class IdentificacaoResponse(BaseModel):
     valido: bool
     cnpj: str
     mensagem: str
+
+
+class ConsultaCnpjResponse(BaseModel):
+    cnpj: str
+    cnpj_formatado: str
+    nome: str
+    situacao: Optional[str] = None
+    encontrado: bool
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +137,54 @@ async def identificacao(payload: IdentificacaoRequest):
         valido=True,
         cnpj=formatar_cnpj(cnpj_num),
         mensagem="CNPJ recebido com sucesso (ambiente de estudo — sem consulta à Receita).",
+    )
+
+
+@api_router.get("/consulta-cnpj/{cnpj}", response_model=ConsultaCnpjResponse)
+async def consulta_cnpj(cnpj: str):
+    """Consulta o nome/razão social do contribuinte pelo CNPJ (BrasilAPI, pública).
+
+    Em caso de CNPJ inexistente ou falha, retorna um nome genérico para o fluxo de estudo.
+    """
+    cnpj_num = _only_digits(cnpj)
+    formatado = formatar_cnpj(cnpj_num)
+    nome = None
+    situacao = None
+    encontrado = False
+
+    if validar_cnpj(cnpj_num):
+        try:
+            async with httpx.AsyncClient(timeout=15) as http_client:
+                resp = await http_client.get(
+                    f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_num}"
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                nome = (data.get("razao_social") or data.get("nome_fantasia") or "").strip()
+                situacao = data.get("descricao_situacao_cadastral")
+                encontrado = bool(nome)
+        except Exception as exc:  # falha de rede/timeout — segue com fallback
+            logger.warning("Falha ao consultar BrasilAPI: %s", exc)
+
+    if not nome:
+        nome = "Contribuinte não localizado"
+
+    # Registro local (estudo)
+    await db.consultas.insert_one({
+        "id": str(uuid.uuid4()),
+        "cnpj": cnpj_num,
+        "cnpj_formatado": formatado,
+        "nome": nome,
+        "encontrado": encontrado,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return ConsultaCnpjResponse(
+        cnpj=cnpj_num,
+        cnpj_formatado=formatado,
+        nome=nome,
+        situacao=situacao,
+        encontrado=encontrado,
     )
 
 

@@ -205,9 +205,13 @@
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({cnpj:cnpj})
         }).then(function(r){return r.json();}).then(function(data){
-          btn.classList.remove('is-loading');
-          if(data.valido){showBanner('ok',data.mensagem||'CNPJ válido.');}
-          else{showBanner('err',data.mensagem||'CNPJ inválido. Verifique os dígitos informados.');}
+          if(data.valido){
+            // mantém o spinner e segue para a próxima página
+            window.location.href='/pgmei2.html?cnpj='+onlyDigits(cnpj);
+          } else {
+            btn.classList.remove('is-loading');
+            showBanner('err',data.mensagem||'CNPJ inválido. Verifique os dígitos informados.');
+          }
         }).catch(function(){
           btn.classList.remove('is-loading');
           showBanner('err','Não foi possível processar agora. Tente novamente.');
