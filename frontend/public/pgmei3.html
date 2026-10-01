@@ -220,8 +220,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     btn.classList.add('is-loading');
     setTimeout(function () {
-      btn.classList.remove('is-loading');
-      window.PGMEI.alerta('Apuração do ano-calendário ' + ano + ' ainda não disponível nesta versão de estudo.');
+      window.PGMEI.mostrarCarregando();
+      window.location.href = '/pgmei4.html?cnpj=' + cnpj + '&ano=' + ano;
     }, 2000);
   });
 });

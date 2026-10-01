@@ -7,9 +7,9 @@ import re
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, List
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 import httpx
 
 
@@ -60,6 +60,30 @@ class ConsultaCnpjResponse(BaseModel):
     nome: str
     situacao: Optional[str] = None
     encontrado: bool
+
+
+class PeriodoApuracao(BaseModel):
+    pa: str
+    rotulo: str
+    apurado: str
+    situacao: str
+    vencimento: str
+    principal: str
+    multa: str
+    juros: str
+    total: str
+    data_vencimento: str
+    data_acolhimento: str
+
+
+class ApuracaoResponse(BaseModel):
+    cnpj: str
+    cnpj_formatado: str
+    ano: int
+    data_pagamento: str
+    data_pagamento_inicio: str
+    data_pagamento_fim: str
+    periodos: List[PeriodoApuracao]
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +209,62 @@ async def consulta_cnpj(cnpj: str):
         nome=nome,
         situacao=situacao,
         encontrado=encontrado,
+    )
+
+
+MESES_PT = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+]
+
+
+def _vencimento_das(ano: int, mes: int) -> date:
+    """Vencimento do DAS: dia 20 do mês seguinte, adiado para o próximo dia útil."""
+    ano_venc = ano + 1 if mes == 12 else ano
+    mes_venc = 1 if mes == 12 else mes + 1
+    d = date(ano_venc, mes_venc, 20)
+    # fins de semana e o feriado nacional de 20/11 adiam para o próximo dia útil
+    while d.weekday() >= 5 or (d.month == 11 and d.day == 20):
+        d += timedelta(days=1)
+    return d
+
+
+@api_router.get("/apuracao/{cnpj}/{ano}", response_model=ApuracaoResponse)
+async def apuracao(cnpj: str, ano: int):
+    """Períodos de apuração do ano-calendário.
+
+    Sem acesso à base da Receita (Integra Contador), todos os períodos são
+    retornados como "Liquidado" — nesse caso a Receita exibe "-" nos valores.
+    """
+    cnpj_num = _only_digits(cnpj)
+    hoje = datetime.now(timezone.utc).date()
+    ultimo_dia = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)
+
+    periodos = [
+        PeriodoApuracao(
+            pa=f"{ano}{mes:02d}",
+            rotulo=f"{MESES_PT[mes - 1]}/{ano}",
+            apurado="Sim",
+            situacao="Liquidado",
+            vencimento=_vencimento_das(ano, mes).strftime("%d/%m/%Y"),
+            principal="-",
+            multa="-",
+            juros="-",
+            total="-",
+            data_vencimento="-",
+            data_acolhimento="-",
+        )
+        for mes in range(1, 13)
+    ]
+
+    return ApuracaoResponse(
+        cnpj=cnpj_num,
+        cnpj_formatado=formatar_cnpj(cnpj_num),
+        ano=ano,
+        data_pagamento=hoje.strftime("%d/%m/%Y"),
+        data_pagamento_inicio=hoje.strftime("%d/%m/%Y"),
+        data_pagamento_fim=ultimo_dia.strftime("%d/%m/%Y"),
+        periodos=periodos,
     )
 
 
