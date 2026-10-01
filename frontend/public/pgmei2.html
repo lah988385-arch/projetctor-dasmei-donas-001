@@ -105,8 +105,8 @@
  <ul class=list-group>
  <li class=list-group-item>
  <ul class=list-inline>
- <li><strong>CNPJ:</strong> <span id=pg2-cnpj>--</span></li>
- <li><strong>Nome:</strong> <span id=pg2-nome>Carregando...</span></li>
+ <li><strong>CNPJ:</strong> <span id=pg-cnpj>--</span></li>
+ <li><strong>Nome:</strong> <span id=pg-nome>Carregando...</span></li>
  </ul>
  </li>
  </ul>
@@ -160,102 +160,11 @@
  
  
 
-<style>
-/* o HTML foi salvo com o menu aberto, o que embutiu ".dropdown-menu{display:block}".
-   Aqui o dropdown volta a abrir somente com clique. */
-.dropdown-menu{display:none!important}
-.dropdown.open>.dropdown-menu{display:block!important}
-#pg2-popover{position:absolute;z-index:1060;max-width:276px;padding:1px;background:#fff;border:1px solid rgba(0,0,0,.2);border-radius:6px;box-shadow:0 5px 10px rgba(0,0,0,.2);display:none;font-size:14px}
-#pg2-popover.show{display:block}
-#pg2-popover .pop-title{margin:0;padding:8px 14px;font-size:14px;background:#f7f7f7;border-bottom:1px solid #ebebeb;border-radius:5px 5px 0 0;font-weight:700}
-#pg2-popover .pop-body{padding:9px 14px;color:#333}
-</style>
+<link rel="stylesheet" href="/pgmei-shared.css">
+<script src="/pgmei-shared.js"></script>
 <script>
-(function(){
-  function onlyDigits(v){return (v||'').replace(/\D/g,'');}
-  function maskCnpj(v){
-    var d=onlyDigits(v).slice(0,14),o='';
-    for(var i=0;i<d.length;i++){
-      if(i===2)o+='.';if(i===5)o+='.';if(i===8)o+='/';if(i===12)o+='-';
-      o+=d[i];
-    }
-    return o;
-  }
-  document.addEventListener('DOMContentLoaded',function(){
-    // --- CNPJ / Nome do contribuinte ---
-    var params=new URLSearchParams(window.location.search);
-    var cnpj=onlyDigits(params.get('cnpj')||'');
-    var elCnpj=document.getElementById('pg2-cnpj');
-    var elNome=document.getElementById('pg2-nome');
-    if(elCnpj){elCnpj.textContent=cnpj?maskCnpj(cnpj):'--';}
-    if(!cnpj){if(elNome){elNome.textContent='CNPJ não informado';}}
-    else{
-      fetch('/api/consulta-cnpj/'+cnpj).then(function(r){return r.json();}).then(function(data){
-        if(elNome){elNome.textContent=data.nome||'Contribuinte não localizado';}
-        if(elCnpj&&data.cnpj_formatado){elCnpj.textContent=data.cnpj_formatado;}
-      }).catch(function(){
-        if(elNome){elNome.textContent='Não foi possível consultar o nome agora.';}
-      });
-    }
-
-    // --- Links de navegação (ambiente de estudo) ---
-    var qs=cnpj?('?cnpj='+cnpj):'';
-    document.querySelectorAll('nav a').forEach(function(a){
-      var t=(a.textContent||'').trim().toLowerCase();
-      if(t.indexOf('inicio')===0||t.indexOf('início')===0){a.setAttribute('href','/pgmei.html');}
-      else if(t.indexOf('sair')===0){a.setAttribute('href','/pgmei.html');}
-    });
-
-    // --- Dropdown "Consulta Extrato/Pendências" (sem Bootstrap JS) ---
-    var popover=document.createElement('div');
-    popover.id='pg2-popover';
-    popover.innerHTML='<h3 class=pop-title></h3><div class=pop-body></div>';
-    document.body.appendChild(popover);
-    function hidePopover(){popover.classList.remove('show');}
-
-    var toggles=document.querySelectorAll('.dropdown > .dropdown-toggle');
-    toggles.forEach(function(tg){
-      tg.addEventListener('click',function(e){
-        e.preventDefault();
-        var li=tg.parentNode;
-        var wasOpen=li.classList.contains('open');
-        document.querySelectorAll('.dropdown.open').forEach(function(o){
-          o.classList.remove('open');
-          var a=o.querySelector('.dropdown-toggle');
-          if(a){a.setAttribute('aria-expanded','false');}
-        });
-        hidePopover();
-        if(!wasOpen){
-          li.classList.add('open');
-          tg.setAttribute('aria-expanded','true');
-        }
-      });
-    });
-
-    // Itens desabilitados: exibem o aviso de acesso restrito
-    document.querySelectorAll('.dropdown-menu li.disabled > a').forEach(function(a){
-      a.addEventListener('click',function(e){
-        e.preventDefault();
-        e.stopPropagation();
-        var rect=a.getBoundingClientRect();
-        popover.querySelector('.pop-title').textContent=a.getAttribute('data-original-title')||'Acesso restrito';
-        popover.querySelector('.pop-body').textContent=a.getAttribute('data-content')||'';
-        popover.classList.add('show');
-        popover.style.top=(rect.top+window.pageYOffset)+'px';
-        popover.style.left=(rect.right+window.pageXOffset+10)+'px';
-      });
-    });
-
-    document.addEventListener('click',function(e){
-      if(e.target.closest('.dropdown')||e.target.closest('#pg2-popover'))return;
-      document.querySelectorAll('.dropdown.open').forEach(function(o){
-        o.classList.remove('open');
-        var a=o.querySelector('.dropdown-toggle');
-        if(a){a.setAttribute('aria-expanded','false');}
-      });
-      hidePopover();
-    });
-  });
-})();
+document.addEventListener('DOMContentLoaded', function () {
+  window.PGMEI.init();
+});
 </script>
 </body></html>
