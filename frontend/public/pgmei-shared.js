@@ -13,7 +13,19 @@
   }
 
   function getCnpj() {
-    return onlyDigits(new URLSearchParams(window.location.search).get('cnpj') || '');
+    var daUrl = onlyDigits(new URLSearchParams(window.location.search).get('cnpj') || '');
+    if (daUrl.length === 14) {
+      try { sessionStorage.setItem('pgmei_cnpj', daUrl); } catch (e) {}
+      return daUrl;
+    }
+    // Sem CNPJ na URL (ex: após um F5 na raiz) — recupera a sessão
+    var daSessao = '';
+    try { daSessao = onlyDigits(sessionStorage.getItem('pgmei_cnpj') || ''); } catch (e) {}
+    return daSessao;
+  }
+
+  function encerrarSessao() {
+    try { sessionStorage.removeItem('pgmei_cnpj'); } catch (e) {}
   }
 
   function preencherContribuinte(cnpj) {
@@ -42,6 +54,7 @@
       } else if (t.indexOf('sair') === 0) {
         // "Sair" encerra a sessão e volta para a tela de identificação
         a.setAttribute('href', '/pgmei.html');
+        a.addEventListener('click', encerrarSessao);
       } else if (t.indexOf('emitir guia') === 0) {
         a.setAttribute('href', '/pgmei3.html' + qs);
       }
@@ -187,6 +200,11 @@
     spinnerLadda: spinnerLadda,
     init: function () {
       var cnpj = getCnpj();
+      if (!cnpj) {
+        // sem sessão: volta para a identificação
+        window.location.replace('/pgmei.html');
+        return '';
+      }
       preencherContribuinte(cnpj);
       ajustarLinksNavbar(cnpj);
       dropdownNavbar(criarPopover());

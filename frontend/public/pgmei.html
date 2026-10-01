@@ -152,6 +152,14 @@
   var SHIELD='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5l-8-3z" fill="#fff"/><rect x="11" y="7" width="2" height="7" rx="1" fill="#b5312b"/><rect x="11" y="16" width="2" height="2" rx="1" fill="#b5312b"/></svg>';
   var CHECK='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="#fff"/><path d="M7 12.5l3 3 7-7" stroke="#3c8f3c" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   document.addEventListener('DOMContentLoaded',function(){
+    // Se já existe uma sessão ativa, restaura a tela de início (sobrevive ao F5)
+    try{
+      var emSessao=onlyDigits(sessionStorage.getItem('pgmei_cnpj')||'');
+      if(emSessao.length===14){
+        window.location.replace('/pgmei2.html?cnpj='+emSessao);
+        return;
+      }
+    }catch(e){}
     var input=document.getElementById('cnpj');
     var form=document.getElementById('identificacao');
     var btn=document.getElementById('continuar');
@@ -217,11 +225,13 @@
           body:JSON.stringify({cnpj:cnpj})
         }).then(function(r){return r.json();}).then(function(data){
           if(data.valido){
-            // garante pelo menos 2s de carregamento antes de ir para a próxima página
+            // guarda a sessão e garante pelo menos 2s de carregamento
+            var digitos=onlyDigits(cnpj);
+            try{sessionStorage.setItem('pgmei_cnpj',digitos);}catch(e){}
             var elapsed=Date.now()-startedAt;
             var wait=Math.max(2000-elapsed,0);
             setTimeout(function(){
-              window.location.href='/pgmei2.html?cnpj='+onlyDigits(cnpj);
+              window.location.href='/pgmei2.html?cnpj='+digitos;
             },wait);
           } else {
             btn.classList.remove('is-loading');
