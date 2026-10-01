@@ -1,0 +1,163 @@
+from fastapi import FastAPI, APIRouter
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import re
+import logging
+from pathlib import Path
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+import uuid
+from datetime import datetime, timezone
+
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+# MongoDB connection
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+# Create the main app without a prefix
+app = FastAPI()
+
+# Create a router with the /api prefix
+api_router = APIRouter(prefix="/api")
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+class StatusCheck(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    client_name: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class StatusCheckCreate(BaseModel):
+    client_name: str
+
+
+class IdentificacaoRequest(BaseModel):
+    cnpj: str
+
+
+class IdentificacaoResponse(BaseModel):
+    status: str
+    valido: bool
+    cnpj: str
+    mensagem: str
+
+
+# ---------------------------------------------------------------------------
+# CNPJ helpers (estudo)
+# ---------------------------------------------------------------------------
+def _only_digits(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def validar_cnpj(cnpj: str) -> bool:
+    """Valida os dígitos verificadores do CNPJ (14 dígitos)."""
+    num = _only_digits(cnpj)
+    if len(num) != 14:
+        return False
+    if num == num[0] * 14:  # rejeita sequências repetidas (00000000000000, ...)
+        return False
+
+    def calc_dv(base: str, pesos: list[int]) -> int:
+        soma = sum(int(d) * p for d, p in zip(base, pesos))
+        resto = soma % 11
+        return 0 if resto < 2 else 11 - resto
+
+    pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    pesos2 = [6] + pesos1
+    dv1 = calc_dv(num[:12], pesos1)
+    dv2 = calc_dv(num[:12] + str(dv1), pesos2)
+    return num[12] == str(dv1) and num[13] == str(dv2)
+
+
+def formatar_cnpj(cnpj: str) -> str:
+    n = _only_digits(cnpj)
+    if len(n) != 14:
+        return cnpj
+    return f"{n[:2]}.{n[2:5]}.{n[5:8]}/{n[8:12]}-{n[12:]}"
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+@api_router.get("/")
+async def root():
+    return {"message": "Hello World"}
+
+
+@api_router.post("/identificacao", response_model=IdentificacaoResponse)
+async def identificacao(payload: IdentificacaoRequest):
+    """Valida o CNPJ, registra no banco (estudo) e retorna resposta mock.
+
+    Gancho para, no futuro, plugar a API oficial (Integra Contador / SERPRO).
+    """
+    cnpj_num = _only_digits(payload.cnpj)
+    valido = validar_cnpj(cnpj_num)
+
+    # Registro local apenas para estudo/histórico
+    doc = {
+        "id": str(uuid.uuid4()),
+        "cnpj": cnpj_num,
+        "cnpj_formatado": formatar_cnpj(cnpj_num),
+        "valido": valido,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.identificacoes.insert_one(doc)
+
+    if not valido:
+        return IdentificacaoResponse(
+            status="erro",
+            valido=False,
+            cnpj=cnpj_num,
+            mensagem="CNPJ inválido. Verifique os dígitos informados.",
+        )
+
+    # MOCK: nenhuma consulta à Receita é feita neste ambiente de estudo.
+    return IdentificacaoResponse(
+        status="ok",
+        valido=True,
+        cnpj=formatar_cnpj(cnpj_num),
+        mensagem="CNPJ recebido com sucesso (ambiente de estudo — sem consulta à Receita).",
+    )
+
+
+@api_router.post("/status", response_model=StatusCheck)
+async def create_status_check(input: StatusCheckCreate):
+    status_obj = StatusCheck(**input.model_dump())
+    doc = status_obj.model_dump()
+    doc['timestamp'] = doc['timestamp'].isoformat()
+    await db.status_checks.insert_one(doc)
+    return status_obj
+
+
+# Include the router in the main app
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
