@@ -161,6 +161,10 @@
  
 
 <style>
+/* o HTML foi salvo com o menu aberto, o que embutiu ".dropdown-menu{display:block}".
+   Aqui o dropdown volta a abrir somente com clique. */
+.dropdown-menu{display:none!important}
+.dropdown.open>.dropdown-menu{display:block!important}
 #pg2-popover{position:absolute;z-index:1060;max-width:276px;padding:1px;background:#fff;border:1px solid rgba(0,0,0,.2);border-radius:6px;box-shadow:0 5px 10px rgba(0,0,0,.2);display:none;font-size:14px}
 #pg2-popover.show{display:block}
 #pg2-popover .pop-title{margin:0;padding:8px 14px;font-size:14px;background:#f7f7f7;border-bottom:1px solid #ebebeb;border-radius:5px 5px 0 0;font-weight:700}
