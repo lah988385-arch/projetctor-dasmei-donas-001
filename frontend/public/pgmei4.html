@@ -170,8 +170,14 @@
 <div class="panel panel-default" id=pg-import-box data-testid="importacao-box" style="display:none">
 <div class=panel-heading><h4 class=panel-title>Importar dados reais do PGMEI</h4></div>
 <div class=panel-body>
+<hr>
 <ul style="list-style:none;padding:0;margin:0 0 12px">
-<li><strong>Opção 1 — Importação em 1 clique (recomendada)</strong></li>
+<li><strong>Opção 0 — Extensão do navegador (melhor caminho)</strong></li>
+</ul>
+<p><a href="/extensao-pgmei.zip" id=linkExtensao data-testid="baixar-extensao-link" download>Baixar a extensão (.zip)</a> · descompacte, abra <code>chrome://extensions</code>, ligue o <strong>Modo do desenvolvedor</strong> e clique em <strong>Carregar sem compactação</strong> apontando para a pasta. Depois é só clicar no ícone, informar o CNPJ e o intervalo de anos: ela usa a sua própria sessão da Receita e importa tudo com um captcha só.</p>
+<hr>
+<ul style="list-style:none;padding:0;margin:0 0 12px">
+<li><strong>Opção 1 — Importação em 1 clique (favorito)</strong></li>
 </ul>
 <p>Arraste o botão abaixo para a <strong>barra de favoritos</strong> do seu navegador uma única vez. Depois, estando na tela de emissão do PGMEI oficial, clique nele: os dados vêm pra cá sozinhos, sem copiar e colar.</p>
 <p>
@@ -495,17 +501,29 @@ document.addEventListener('DOMContentLoaded', function () {
       .then(function (res) {
         if (res.status === 'cache') return recarregar();
         if (res.status !== 'em_andamento') {
-          avisoOrigem.style.display = 'none';
-          return;
+          return encerrarConsulta(res.motivo);
         }
         return aguardarConsulta(20);
       });
   }
 
-  function aguardarConsulta(restantes) {
-    if (restantes <= 0) {
+  function encerrarConsulta(motivo) {
+    if (!modoDebug) {
       avisoOrigem.style.display = 'none';
       return;
+    }
+    // em modo debug a faixa continua à mão, com o motivo da recusa
+    btnAbrirImport.style.display = '';
+    avisoOrigem.style.display = 'block';
+    avisoOrigem.classList.remove('alert-success', 'alert-info');
+    avisoOrigem.classList.add('alert-warning');
+    textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> '
+      + (motivo ? 'Consulta automática: ' + motivo : 'Consulta automática não concluída.');
+  }
+
+  function aguardarConsulta(restantes) {
+    if (restantes <= 0) {
+      return encerrarConsulta('tempo esgotado.');
     }
     return new Promise(function (resolve) { setTimeout(resolve, 3000); })
       .then(recarregar)
@@ -536,8 +554,10 @@ document.addEventListener('DOMContentLoaded', function () {
   var carregada = recarregar()
     .then(function (data) {
       if (data && (data.origem !== 'real' || data.cache_expirado)) {
-        return consultarValoresReais();
+        // não bloqueia a tela: a consulta roda depois do overlay sair
+        setTimeout(consultarValoresReais, 300);
       }
+      return data;
     })
     .catch(function () {
       tbody.innerHTML = '<tr><td colspan=11 class="text-center text-danger">'

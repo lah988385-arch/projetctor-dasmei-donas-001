@@ -258,3 +258,39 @@ vê a tabela, como no site oficial.
   (2) com cache → faixa verde e 4 linhas reais; (3) `?debug=1` → painel visível.
   Backend: consulta automática roda, Receita devolve "13896 - Impedido por proteção Captcha" e
   o cooldown é registrado (como esperado: IP de servidor)
+
+## Implementado (2026-06 — Extensão de navegador Manifest V3)
+Pedido do usuário: extensão que roda no navegador dele (IP residencial, captcha dele) e importa
+vários anos com um captcha só. **2Captcha foi recusado** (burlar proteção de sistema do governo);
+registrado que a chave que o usuário colou no chat deve ser revogada.
+- `/app/extension/`: `manifest.json` (MV3), `popup.html`, `popup.js`, `content.js`, ícones
+  gerados com PIL. Empacotada em `/app/frontend/public/extensao-pgmei.zip` (download pelo app)
+- Popup: CNPJ com máscara, intervalo De/Até (2009..ano atual), opção "enviar o CNPJ
+  automaticamente", botões Importar/Parar, log ao vivo e campo para o endereço do app
+- `content.js` roda nas páginas `pgmei.app/*` e funciona como máquina de estado em
+  `chrome.storage.local`: preenche o CNPJ (setter nativo + eventos), aguarda/dispara o submit,
+  detecta a tela de emissão, manda o `outerHTML` de cada ano para `POST /api/apuracao/importar`,
+  marca o ano como feito, seleciona o próximo ano no `select` e reenvia o formulário até acabar
+- Reaproveita o parser do backend — nenhuma regra de leitura duplicada na extensão
+- Testado com Chromium real + Xvfb (`launch_persistent_context` com `--load-extension`):
+  popup carrega (18 anos no select), estado é salvo, a aba do PGMEI abre e o content script
+  preencheu `40.570.199/0001-08` na tela real da Receita e disparou o envio. Log do popup
+  mostrou "Iniciando 2026–2026", "CNPJ preenchido. Enviando..."
+- Painel debug (`?debug=1`) ganhou a "Opção 0 — Extensão do navegador" com link do .zip
+  (HTTP 200, 6.7 KB, zip íntegro)
+
+### Correções nesta rodada
+- O overlay de carregamento ficava preso: `carregada` esperava a consulta automática inteira.
+  Agora a consulta é disparada com `setTimeout` depois do primeiro render
+- Em `?debug=1` a faixa não desaparece mais quando a consulta falha: mostra
+  "Dados de exemplo. Consulta automática: 13896 - Impedido por proteção Captcha." e mantém
+  o botão "Importar dados reais" acessível
+- `_garantir_chromium()` provou-se necessário: o cache do Playwright em /root foi perdido 2x
+  (pod recriado). O backend reinstala sozinho na primeira consulta (~90 s)
+
+## Backlog atualizado
+- P1: validar a extensão ponta a ponta num navegador residencial (só o usuário pode fazer)
+- P1: publicar a extensão como .crx/Chrome Web Store (opcional)
+- P2: proxy residencial (`PGMEI_PROXY_*`) para a consulta automática do servidor
+- P2: SERPRO Integra Contador (via oficial, sem captcha)
+- P2: cartão de resumo com total devido e meses atrasados
