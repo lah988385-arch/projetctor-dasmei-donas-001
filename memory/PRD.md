@@ -235,3 +235,26 @@ no servidor com relay de captcha (fase 2, pendente).
   "Atualizar agora". Reimportar (bookmarklet, colar HTML ou sessão) renova o prazo
 - Testado: import devolve dias=7/expirado=false; forçando `importado_em` 9 dias atrás a API
   devolve dias=0/expirado=true mantendo os 4 períodos, e a UI mostra a faixa amarela
+
+## Implementado (2026-06 — UI limpa + consulta automática em segundo plano)
+Pedido: o painel de importação (Opções 1/2/3) não deve aparecer na tela principal; o usuário só
+vê a tabela, como no site oficial.
+- Painel de importação e botões agora só existem com `?debug=1` na URL (ex.:
+  `/pgmei4.html?cnpj=...&ano=2026&debug=1`). Sem o parâmetro o `#pg-import-box` é removido do DOM
+- Faixa de origem: verde "Dados reais · Importados em dd/mm às hh:mm · Válidos por N dia(s)"
+  quando há cache válido; amarela quando passou de 7 dias; **nada** quando não há dados reais
+- Ao abrir a tela sem cache (ou com cache vencido) o front mostra "Consultando valores reais..."
+  (spinner de 12 barras) e chama `POST /api/apuracao/consultar`
+- `POST /api/apuracao/consultar` → `{status: cache|em_andamento|recusada}`. Dispara
+  `_consulta_automatica()` em `asyncio.create_task` (não trava a requisição nem estoura o
+  timeout do ingress); o front repoll `GET /api/apuracao` a cada 3 s, até 20 vezes
+- `Sessao.enviar_identificacao()`: clica em Continuar com movimento de mouse e espera a resposta
+- Falha da consulta automática grava `tentativas_consulta` (cnpj+ano+motivo) com **cooldown de 1 h**,
+  para não abrir Chromium a cada F5. Quando falha, a faixa desaparece e a tela fica igual ao
+  site oficial (tabela simulada, sem aviso)
+- `_garantir_chromium()`: se o pod subir sem o cache do Playwright, roda `playwright install
+  chromium` sob demanda (o diretório /root/.cache/ms-playwright já foi perdido uma vez)
+- Testado: (1) sem cache + cooldown → painel ausente, faixa oculta, 12 linhas simuladas;
+  (2) com cache → faixa verde e 4 linhas reais; (3) `?debug=1` → painel visível.
+  Backend: consulta automática roda, Receita devolve "13896 - Impedido por proteção Captcha" e
+  o cooldown é registrado (como esperado: IP de servidor)

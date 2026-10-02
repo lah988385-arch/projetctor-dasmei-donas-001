@@ -429,35 +429,91 @@ document.addEventListener('DOMContentLoaded', function () {
   var areaHtml = document.getElementById('htmlImportado');
   var statusImport = document.getElementById('importStatus');
 
+  var modoDebug = /[?&]debug=1/.test(window.location.search);
+  if (!modoDebug) {
+    var caixaDebug = document.getElementById('pg-import-box');
+    if (caixaDebug) caixaDebug.remove();
+    var btnDebug = document.getElementById('btnAbrirImport');
+    if (btnDebug) btnDebug.style.display = 'none';
+  }
+
   function pintarOrigem(data) {
     if (!avisoOrigem) return;
-    avisoOrigem.style.display = 'block';
-    avisoOrigem.classList.toggle('alert-success', data.origem === 'real');
-    avisoOrigem.classList.toggle('alert-info', data.origem !== 'real');
-    if (data.origem === 'real') {
-      var quando = '';
-      if (data.importado_em) {
-        var d = new Date(data.importado_em);
-        quando = ' em ' + d.toLocaleDateString('pt-BR') + ' às '
-          + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      }
-      var validade = '';
-      if (data.cache_expirado) {
-        validade = ' <strong class=text-danger>Estes dados têm mais de 7 dias.</strong> Importe de novo para atualizar.';
-      } else if (data.dias_restantes) {
-        validade = ' Válidos por ' + data.dias_restantes + ' dia(s) — depois disso vale reimportar.';
-      }
-      avisoOrigem.classList.toggle('alert-success', !data.cache_expirado);
-      avisoOrigem.classList.toggle('alert-warning', !!data.cache_expirado);
-      avisoOrigem.classList.remove('alert-info');
-      textoOrigem.innerHTML = '<strong>Dados reais do PGMEI</strong> importados' + quando + '.' + validade;
-      btnAbrirImport.textContent = data.cache_expirado ? 'Atualizar agora' : 'Atualizar importação';
-      btnLimparImport.style.display = '';
-    } else {
-      textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> Para ver os valores reais deste CNPJ, importe a tela de emissão do PGMEI oficial.';
+    avisoOrigem.classList.remove('alert-info', 'alert-success', 'alert-warning');
+
+    if (data.origem !== 'real') {
+      // sem dados reais a tela se comporta como o site oficial: só a tabela
+      avisoOrigem.style.display = modoDebug ? 'block' : 'none';
+      avisoOrigem.classList.add('alert-info');
+      textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> Nenhuma importação real para este CNPJ e ano.';
       btnAbrirImport.textContent = 'Importar dados reais';
       btnLimparImport.style.display = 'none';
+      return;
     }
+
+    avisoOrigem.style.display = 'block';
+    var quando = '';
+    if (data.importado_em) {
+      var d = new Date(data.importado_em);
+      quando = ' em ' + d.toLocaleDateString('pt-BR') + ' às '
+        + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    }
+    var validade = '';
+    if (data.cache_expirado) {
+      validade = ' <strong>Estes dados têm mais de 7 dias.</strong>';
+    } else if (data.dias_restantes) {
+      validade = ' · Válidos por ' + data.dias_restantes + ' dia(s)';
+    }
+    avisoOrigem.classList.add(data.cache_expirado ? 'alert-warning' : 'alert-success');
+    textoOrigem.innerHTML = '<strong>Dados reais</strong> · Importados' + quando + validade;
+    btnAbrirImport.textContent = data.cache_expirado ? 'Atualizar agora' : 'Atualizar importação';
+    btnLimparImport.style.display = modoDebug ? '' : 'none';
+  }
+
+  function mostrarConsultando(ligado) {
+    if (!avisoOrigem) return;
+    if (!ligado) return;
+    avisoOrigem.style.display = 'block';
+    avisoOrigem.classList.remove('alert-success', 'alert-warning');
+    avisoOrigem.classList.add('alert-info');
+    btnLimparImport.style.display = 'none';
+    if (!modoDebug) btnAbrirImport.style.display = 'none';
+    textoOrigem.innerHTML = '<span class="ladda-spinner" style="display:inline-block;width:20px;'
+      + 'height:20px;vertical-align:-5px;margin-right:8px"></span>Consultando valores reais...';
+    var alvo = avisoOrigem.querySelector('.ladda-spinner');
+    if (alvo && window.PGMEI && window.PGMEI.spinnerLadda) window.PGMEI.spinnerLadda(avisoOrigem);
+  }
+
+  function consultarValoresReais() {
+    mostrarConsultando(true);
+    return fetch('/api/apuracao/consultar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cnpj: cnpj, ano: Number(ano) })
+    })
+      .then(function (r) { return r.ok ? r.json() : { status: 'recusada' }; })
+      .catch(function () { return { status: 'recusada' }; })
+      .then(function (res) {
+        if (res.status === 'cache') return recarregar();
+        if (res.status !== 'em_andamento') {
+          avisoOrigem.style.display = 'none';
+          return;
+        }
+        return aguardarConsulta(20);
+      });
+  }
+
+  function aguardarConsulta(restantes) {
+    if (restantes <= 0) {
+      avisoOrigem.style.display = 'none';
+      return;
+    }
+    return new Promise(function (resolve) { setTimeout(resolve, 3000); })
+      .then(recarregar)
+      .then(function (data) {
+        if (data && data.origem === 'real' && !data.cache_expirado) return data;
+        mostrarConsultando(true);
+        return aguardarConsulta(restantes - 1);
+      });
   }
 
   function preencher(data) {
@@ -468,6 +524,7 @@ document.addEventListener('DOMContentLoaded', function () {
       dataPagamento.setAttribute('data-date-end-date', data.data_pagamento_fim);
     }
     pintarOrigem(data);
+    return data;
   }
 
   function recarregar() {
@@ -477,6 +534,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   var carregada = recarregar()
+    .then(function (data) {
+      if (data && (data.origem !== 'real' || data.cache_expirado)) {
+        return consultarValoresReais();
+      }
+    })
     .catch(function () {
       tbody.innerHTML = '<tr><td colspan=11 class="text-center text-danger">'
         + 'Não foi possível carregar os períodos de apuração agora.</td></tr>';

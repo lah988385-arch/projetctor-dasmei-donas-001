@@ -4,6 +4,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
+import asyncio
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -619,6 +620,76 @@ async def sessao_preencher_cnpj(sessao_id: str, payload: SessaoAbrirRequest = No
 async def sessao_fechar(sessao_id: str):
     await gerenciador.encerrar(sessao_id)
     return {"encerrada": True}
+
+
+class ConsultaAutomaticaRequest(BaseModel):
+    cnpj: str
+    ano: int
+
+
+class ConsultaStatus(BaseModel):
+    status: str  # cache | em_andamento | recusada
+    motivo: Optional[str] = None
+
+
+async def _consulta_automatica(cnpj_num: str, ano: int):
+    """Abre o navegador no servidor, tenta a identificação e grava os períodos reais."""
+    chave = {"cnpj": cnpj_num, "ano": ano}
+
+    async def registrar_falha(motivo: str):
+        await db.tentativas_consulta.update_one(
+            chave, {"$set": {**chave, "em": datetime.now(timezone.utc).isoformat(),
+                             "motivo": motivo[:220]}}, upsert=True)
+
+    sessao = None
+    try:
+        sessao = await gerenciador.abrir(cnpj_num)
+        async with sessao.lock:
+            await sessao.enviar_identificacao()
+            if not await sessao.autenticado():
+                await registrar_falha(await sessao.aviso_site()
+                                      or "A Receita não liberou a consulta automática.")
+                return
+            periodos = await sessao.coletar_ano(ano)
+            if not periodos:
+                await registrar_falha("Nenhum período encontrado na tela de emissão.")
+                return
+            await db.apuracoes_importadas.update_one(
+                chave, {"$set": {**chave, "periodos": periodos, "origem": "automatica",
+                                 "importado_em": datetime.now(timezone.utc).isoformat()}},
+                upsert=True)
+            await db.tentativas_consulta.delete_one(chave)
+    except Exception as exc:
+        logger.warning("consulta automática falhou para %s/%s: %s", cnpj_num, ano, exc)
+        await registrar_falha(f"Falha na consulta automática: {exc}")
+    finally:
+        if sessao:
+            await gerenciador.encerrar(sessao.id)
+
+
+@api_router.post("/apuracao/consultar", response_model=ConsultaStatus)
+async def consultar_apuracao(payload: ConsultaAutomaticaRequest):
+    """Dispara a busca dos valores reais: cache de 7 dias e, se vencido, a Receita.
+
+    A consulta roda em segundo plano (o navegador leva ~30 s) e o front acompanha
+    relendo /api/apuracao. Falhas ficam em cooldown de 1 h para não repetir a cada tela.
+    """
+    cnpj_num = _only_digits(payload.cnpj)
+    if not validar_cnpj(cnpj_num):
+        raise HTTPException(status_code=400, detail="CNPJ inválido.")
+
+    chave = {"cnpj": cnpj_num, "ano": payload.ano}
+    doc = await db.apuracoes_importadas.find_one(chave)
+    if doc and doc.get("periodos") and not _validade_cache(doc.get("importado_em"))["cache_expirado"]:
+        return ConsultaStatus(status="cache")
+
+    tentativa = await db.tentativas_consulta.find_one(chave)
+    if tentativa and (datetime.now(timezone.utc)
+                      - datetime.fromisoformat(tentativa["em"])) < timedelta(hours=1):
+        return ConsultaStatus(status="recusada", motivo=tentativa.get("motivo"))
+
+    asyncio.create_task(_consulta_automatica(cnpj_num, payload.ano))
+    return ConsultaStatus(status="em_andamento")
 
 
 class DasPdfRequest(BaseModel):

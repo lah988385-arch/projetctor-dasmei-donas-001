@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -54,6 +55,20 @@ def _garantir_display():
 
 
 
+async def _garantir_chromium(pw):
+    """Reinstala o Chromium se o pod subiu sem o cache do Playwright."""
+    try:
+        if os.path.exists(pw.chromium.executable_path):
+            return
+    except Exception:
+        pass
+    logger.info("baixando o Chromium do Playwright")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "playwright", "install", "chromium",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+    await asyncio.wait_for(proc.wait(), timeout=420)
+
+
 class SessaoExpirada(Exception):
     pass
 
@@ -83,6 +98,7 @@ class Sessao:
         _garantir_display()
         await asyncio.sleep(1.0)
         self._pw = await async_playwright().start()
+        await _garantir_chromium(self._pw)
         proxy = None
         if os.environ.get("PGMEI_PROXY_SERVER"):
             proxy = {"server": os.environ["PGMEI_PROXY_SERVER"]}
@@ -161,6 +177,21 @@ class Sessao:
         except Exception:
             pass
         return ""
+
+    async def enviar_identificacao(self):
+        """Clica em Continuar na tela de identificação e espera a resposta do site."""
+        botao = self.page.locator("form button[type=submit], form input[type=submit], button:has-text('Continuar')").first
+        if await botao.count():
+            caixa = await botao.bounding_box()
+            if caixa:
+                await self.page.mouse.move(caixa["x"] + caixa["width"] / 2,
+                                           caixa["y"] + caixa["height"] / 2, steps=12)
+                await self.page.mouse.click(caixa["x"] + caixa["width"] / 2,
+                                            caixa["y"] + caixa["height"] / 2, delay=60)
+            else:
+                await botao.click()
+        await self.page.wait_for_timeout(7000)
+        self.tocar()
 
     async def coletar_ano(self, ano: int) -> List[dict]:
         """Navega na emissão do ano-calendário e devolve os períodos da tabela."""
