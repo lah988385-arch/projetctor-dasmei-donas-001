@@ -170,6 +170,19 @@
 <div class="panel panel-default" id=pg-import-box data-testid="importacao-box" style="display:none">
 <div class=panel-heading><h4 class=panel-title>Importar dados reais do PGMEI</h4></div>
 <div class=panel-body>
+<ul style="list-style:none;padding:0;margin:0 0 12px">
+<li><strong>Opção 1 — Importação em 1 clique (recomendada)</strong></li>
+</ul>
+<p>Arraste o botão abaixo para a <strong>barra de favoritos</strong> do seu navegador uma única vez. Depois, estando na tela de emissão do PGMEI oficial, clique nele: os dados vêm pra cá sozinhos, sem copiar e colar.</p>
+<p>
+<a href="#" id=bookmarklet class="btn btn-warning btn-sm" data-testid="bookmarklet-link" onclick="return false">Importar para o PGMEI de estudo</a>
+<button type=button class="btn btn-default btn-sm" id=btnCopiarBookmarklet data-testid="copiar-bookmarklet-btn" style="margin-left:6px">Copiar código do favorito</button>
+<span id=statusBookmarklet class=text-success style="margin-left:8px"></span>
+</p>
+<hr>
+<ul style="list-style:none;padding:0;margin:0 0 12px">
+<li><strong>Opção 2 — Colar o código-fonte</strong></li>
+</ul>
 <ol class=text-info style="padding-left:18px">
 <li>Abra o <a href="https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/Identificacao" target=_blank rel=noopener id=linkPgmeiReal data-testid="abrir-pgmei-real-link">PGMEI oficial da Receita Federal</a>, informe o CNPJ, resolva o captcha e chegue na tela de emissão do ano desejado.</li>
 <li>Nessa página pressione <strong>Ctrl+U</strong> (ver código-fonte) e copie todo o conteúdo com <strong>Ctrl+A</strong> e <strong>Ctrl+C</strong>.</li>
@@ -181,6 +194,29 @@
 <button type=button class="btn btn-default" id=btnCancelarImport data-testid="cancelar-importacao-btn">Cancelar</button>
 <span id=importStatus data-testid="importacao-status" style="margin-left:10px"></span>
 </div>
+<hr>
+<ul style="list-style:none;padding:0;margin:0 0 12px">
+<li><strong>Opção 3 — Consulta automática (beta)</strong></li>
+</ul>
+<p>O navegador roda no nosso servidor: você resolve o captcha na tela abaixo e o sistema importa vários anos de uma vez. <em>Pode ser recusado pela Receita com o aviso "Comportamento de Robô", porque o IP é de servidor.</em></p>
+<button type=button class="btn btn-primary btn-sm" id=btnSessaoAuto data-testid="sessao-auto-btn">Abrir consulta automática</button>
+</div>
+</div>
+</div>
+
+<div id=pg-sessao-modal data-testid="sessao-modal" style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.6);overflow:auto;padding:20px">
+<div style="max-width:1040px;margin:0 auto;background:#fff;border-radius:6px;padding:14px">
+<h4 style="margin:0 0 8px">Consulta automática no PGMEI oficial <small id=sessaoEstado data-testid="sessao-estado"></small></h4>
+<div class="alert alert-warning" id=sessaoAviso data-testid="sessao-aviso" style="display:none;padding:8px 12px"></div>
+<img id=telaSessao data-testid="sessao-tela" alt="tela do navegador do servidor" style="width:100%;border:1px solid #ccc;cursor:crosshair;background:#f5f5f5;min-height:300px">
+<div style="margin-top:10px">
+<input type=text id=textoSessao class=form-control data-testid="sessao-texto-input" placeholder="Digitar texto na tela" style="width:260px;display:inline-block">
+<button type=button class="btn btn-default btn-sm" id=btnTeclarSessao data-testid="sessao-teclar-btn">Digitar</button>
+<button type=button class="btn btn-default btn-sm" id=btnEnterSessao data-testid="sessao-enter-btn">Enter</button>
+<button type=button class="btn btn-default btn-sm" id=btnPreencherSessao data-testid="sessao-preencher-btn">Repreencher CNPJ</button>
+<button type=button class="btn btn-success btn-sm" id=btnColetarSessao data-testid="sessao-coletar-btn">Importar anos</button>
+<button type=button class="btn btn-danger btn-sm" id=btnFecharSessao data-testid="sessao-fechar-btn">Fechar</button>
+<span id=sessaoStatus data-testid="sessao-status" style="margin-left:8px"></span>
 </div>
 </div>
 </div>
@@ -502,6 +538,201 @@ document.addEventListener('DOMContentLoaded', function () {
           boxImport.style.display = 'none';
           statusImport.textContent = '';
         });
+    });
+  }
+
+  // ---- Opção 1: bookmarklet que importa a página do PGMEI oficial em 1 clique ----
+  var codigoBookmarklet = "javascript:(function(){var d=document;var t=d.body.innerText||'';"
+    + "var c=(t.match(/\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}/)||[''])[0].replace(/\\D/g,'');"
+    + "var i=d.querySelector('input[name=pa]');var a=i&&i.value?i.value.slice(0,4):"
+    + "((d.querySelector('select[name=ano],#ano')||{}).value||'');"
+    + "if(!c||!a){alert('Abra a tela de emissao do PGMEI (com a lista de meses) antes de clicar aqui.');return;}"
+    + "fetch('" + window.location.origin + "/api/apuracao/importar',{method:'POST',"
+    + "headers:{'Content-Type':'application/json'},body:JSON.stringify({cnpj:c,ano:Number(a),"
+    + "html:d.documentElement.outerHTML})}).then(function(r){return r.json().then(function(b){return{ok:r.ok,b:b}})})"
+    + ".then(function(r){alert(r.ok?('Importado para o PGMEI de estudo: '+r.b.total_periodos+' periodo(s) de '+r.b.ano"
+    + "+', '+r.b.em_aberto.length+' em aberto, total devido R$ '+r.b.total_em_aberto_formatado)"
+    + ":('Nao deu: '+(r.b.detail||'erro')))}).catch(function(e){alert('Falha ao enviar: '+e)})})()";
+
+  var linkBookmarklet = document.getElementById('bookmarklet');
+  var btnCopiar = document.getElementById('btnCopiarBookmarklet');
+  var statusBookmarklet = document.getElementById('statusBookmarklet');
+  if (linkBookmarklet) linkBookmarklet.setAttribute('href', codigoBookmarklet);
+  if (btnCopiar) {
+    btnCopiar.addEventListener('click', function () {
+      var pronto = function () {
+        statusBookmarklet.textContent = 'Código copiado. Crie um favorito e cole no campo de endereço dele.';
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(codigoBookmarklet).then(pronto, pronto);
+      } else {
+        pronto();
+      }
+    });
+  }
+
+  // ---- Opção 3: sessão de navegador no servidor com relay de captcha ----
+  var modalSessao = document.getElementById('pg-sessao-modal');
+  var imgSessao = document.getElementById('telaSessao');
+  var rotuloEstado = document.getElementById('sessaoEstado');
+  var avisoSessao = document.getElementById('sessaoAviso');
+  var statusSessao = document.getElementById('sessaoStatus');
+  var sessaoId = null;
+  var timerTela = null;
+  var timerEstado = null;
+
+  function pintarEstadoSessao(st) {
+    rotuloEstado.textContent = '· ' + (st.mensagem || st.estado);
+    if (st.aviso_site) {
+      avisoSessao.style.display = 'block';
+      var extra = '';
+      if (/rob/i.test(st.aviso_site)) {
+        extra = '<br><small>A Receita recusou o captcha porque o navegador está num IP de servidor. '
+          + 'Use a <strong>Opção 1 (importação em 1 clique)</strong>, que roda no seu próprio navegador.</small>';
+      }
+      avisoSessao.innerHTML = '<strong>Mensagem da Receita:</strong> ' + st.aviso_site + extra;
+    } else {
+      avisoSessao.style.display = 'none';
+    }
+  }
+
+  function pararSessao() {
+    if (timerTela) clearInterval(timerTela);
+    if (timerEstado) clearInterval(timerEstado);
+    timerTela = timerEstado = null;
+  }
+
+  function iniciarEspelho() {
+    imgSessao.src = '/api/sessao/' + sessaoId + '/tela?t=' + Date.now();
+    timerTela = setInterval(function () {
+      imgSessao.src = '/api/sessao/' + sessaoId + '/tela?t=' + Date.now();
+    }, 1200);
+    timerEstado = setInterval(function () {
+      fetch('/api/sessao/' + sessaoId + '/estado')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (st) { if (st) pintarEstadoSessao(st); });
+    }, 3000);
+  }
+
+  var btnSessaoAuto = document.getElementById('btnSessaoAuto');
+  if (btnSessaoAuto) {
+    btnSessaoAuto.addEventListener('click', function () {
+      btnSessaoAuto.disabled = true;
+      statusImport.className = 'text-info';
+      statusImport.textContent = 'Abrindo navegador no servidor...';
+      fetch('/api/sessao/abrir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: cnpj })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          btnSessaoAuto.disabled = false;
+          if (!res.ok) {
+            statusImport.className = 'text-danger';
+            statusImport.textContent = res.b.detail || 'Não foi possível abrir a sessão.';
+            return;
+          }
+          statusImport.textContent = '';
+          sessaoId = res.b.id;
+          modalSessao.style.display = 'block';
+          pintarEstadoSessao(res.b);
+          iniciarEspelho();
+        })
+        .catch(function () {
+          btnSessaoAuto.disabled = false;
+          statusImport.className = 'text-danger';
+          statusImport.textContent = 'Falha de comunicação ao abrir a sessão.';
+        });
+    });
+  }
+
+  if (imgSessao) {
+    imgSessao.addEventListener('click', function (ev) {
+      if (!sessaoId) return;
+      var r = imgSessao.getBoundingClientRect();
+      var escala = (imgSessao.naturalWidth || r.width) / r.width;
+      var x = (ev.clientX - r.left) * escala;
+      var y = (ev.clientY - r.top) * escala;
+      fetch('/api/sessao/' + sessaoId + '/clique', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: x, y: y })
+      })
+        .then(function (r2) { return r2.ok ? r2.json() : null; })
+        .then(function (st) { if (st) pintarEstadoSessao(st); });
+    });
+  }
+
+  function teclar(corpo) {
+    if (!sessaoId) return;
+    fetch('/api/sessao/' + sessaoId + '/teclar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (st) { if (st) pintarEstadoSessao(st); });
+  }
+
+  var campoTexto = document.getElementById('textoSessao');
+  var btnTeclar = document.getElementById('btnTeclarSessao');
+  var btnEnter = document.getElementById('btnEnterSessao');
+  var btnColetar = document.getElementById('btnColetarSessao');
+  var btnFecharSessao = document.getElementById('btnFecharSessao');
+
+  if (btnTeclar) btnTeclar.addEventListener('click', function () {
+    teclar({ texto: campoTexto.value }); campoTexto.value = '';
+  });
+  if (btnEnter) btnEnter.addEventListener('click', function () { teclar({ tecla: 'Enter' }); });
+
+  var btnPreencher = document.getElementById('btnPreencherSessao');
+  if (btnPreencher) {
+    btnPreencher.addEventListener('click', function () {
+      if (!sessaoId) return;
+      fetch('/api/sessao/' + sessaoId + '/preencher-cnpj', { method: 'POST' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (st) { if (st) pintarEstadoSessao(st); });
+    });
+  }
+
+  if (btnColetar) {
+    btnColetar.addEventListener('click', function () {
+      if (!sessaoId) return;
+      var atual = Number(ano);
+      var anos = [];
+      for (var a = atual - 5; a <= atual; a++) anos.push(a);
+      btnColetar.disabled = true;
+      statusSessao.className = 'text-info';
+      statusSessao.textContent = 'Importando ' + anos[0] + ' a ' + atual + '...';
+      fetch('/api/sessao/' + sessaoId + '/coletar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anos: anos })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          btnColetar.disabled = false;
+          if (!res.ok) {
+            statusSessao.className = 'text-danger';
+            statusSessao.textContent = res.b.detail || 'Não foi possível importar.';
+            return;
+          }
+          statusSessao.className = 'text-success';
+          statusSessao.textContent = res.b.importados + ' ano(s) importado(s).';
+          return recarregar();
+        })
+        .catch(function () {
+          btnColetar.disabled = false;
+          statusSessao.className = 'text-danger';
+          statusSessao.textContent = 'Falha de comunicação ao importar.';
+        });
+    });
+  }
+
+  if (btnFecharSessao) {
+    btnFecharSessao.addEventListener('click', function () {
+      pararSessao();
+      modalSessao.style.display = 'none';
+      if (sessaoId) fetch('/api/sessao/' + sessaoId + '/fechar', { method: 'POST' });
+      sessaoId = null;
+      statusSessao.textContent = '';
     });
   }
 

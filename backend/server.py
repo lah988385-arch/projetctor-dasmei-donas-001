@@ -14,6 +14,7 @@ import httpx
 from das_pdf import (gerar_pdf_das, numero_apuracao, numero_documento,
                      composicao_das, brl, codigo_pix_estudo, qrcode_base64)
 from pgmei_import import parse_emissao, resumir
+from pgmei_sessao import VIEWPORT, SessaoExpirada, gerenciador
 
 
 ROOT_DIR = Path(__file__).parent
@@ -401,6 +402,200 @@ async def remover_apuracao_importada(cnpj: str, ano: int):
     return _resumo_importacao(cnpj_num, ano, [], None)
 
 
+class SessaoAbrirRequest(BaseModel):
+    cnpj: str
+
+
+class SessaoEstado(BaseModel):
+    id: str
+    cnpj: str
+    cnpj_formatado: str
+    estado: str
+    mensagem: str = ""
+    autenticado: bool = False
+    aviso_site: str = ""
+    largura: int = 1000
+    altura: int = 760
+    ociosa_por: int = 0
+
+
+class SessaoCliqueRequest(BaseModel):
+    x: float
+    y: float
+
+
+class SessaoTeclaRequest(BaseModel):
+    texto: Optional[str] = None
+    tecla: Optional[str] = None
+
+
+class SessaoColetaRequest(BaseModel):
+    anos: List[int] = []
+
+
+class AnoColetado(BaseModel):
+    ano: int
+    periodos: int = 0
+    em_aberto: int = 0
+    a_vencer: int = 0
+    liquidados: int = 0
+    total_em_aberto_formatado: str = "0,00"
+    erro: Optional[str] = None
+
+
+class SessaoColetaResponse(BaseModel):
+    cnpj: str
+    anos: List[AnoColetado]
+    importados: int = 0
+
+
+async def _estado_sessao(sessao) -> SessaoEstado:
+    try:
+        autenticado = await sessao.autenticado()
+    except Exception:
+        autenticado = False
+    try:
+        aviso = await sessao.aviso_site()
+    except Exception:
+        aviso = ""
+    if autenticado and sessao.estado == "aguardando_captcha":
+        sessao.estado = "autenticado"
+        sessao.mensagem = "Captcha aceito. Importe os anos-calendário."
+    return SessaoEstado(
+        id=sessao.id, cnpj=sessao.cnpj, cnpj_formatado=formatar_cnpj(sessao.cnpj),
+        estado=sessao.estado, mensagem=sessao.mensagem, autenticado=autenticado,
+        aviso_site=aviso,
+        largura=VIEWPORT["width"], altura=VIEWPORT["height"], ociosa_por=int(sessao.ociosa_por),
+    )
+
+
+def _pegar_sessao(sessao_id: str):
+    try:
+        return gerenciador.obter(sessao_id)
+    except SessaoExpirada as exc:
+        raise HTTPException(status_code=410, detail=str(exc))
+
+
+@api_router.post("/sessao/abrir", response_model=SessaoEstado)
+async def sessao_abrir(payload: SessaoAbrirRequest):
+    """Abre o Chromium no servidor já na tela de identificação do PGMEI."""
+    cnpj_num = _only_digits(payload.cnpj)
+    if not validar_cnpj(cnpj_num):
+        raise HTTPException(status_code=400, detail="CNPJ inválido.")
+    try:
+        sessao = await gerenciador.abrir(cnpj_num)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Não foi possível abrir o PGMEI: {exc}")
+    return await _estado_sessao(sessao)
+
+
+@api_router.get("/sessao/{sessao_id}/estado", response_model=SessaoEstado)
+async def sessao_estado(sessao_id: str):
+    sessao = _pegar_sessao(sessao_id)
+    async with sessao.lock:
+        return await _estado_sessao(sessao)
+
+
+@api_router.get("/sessao/{sessao_id}/tela")
+async def sessao_tela(sessao_id: str):
+    """Print atual da tela do navegador do servidor."""
+    sessao = _pegar_sessao(sessao_id)
+    async with sessao.lock:
+        try:
+            imagem = await sessao.tela()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Falha ao capturar a tela: {exc}")
+    return Response(content=imagem, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@api_router.post("/sessao/{sessao_id}/clique", response_model=SessaoEstado)
+async def sessao_clique(sessao_id: str, payload: SessaoCliqueRequest):
+    sessao = _pegar_sessao(sessao_id)
+    async with sessao.lock:
+        try:
+            await sessao.page.mouse.move(payload.x, payload.y, steps=10)
+            await sessao.page.mouse.click(payload.x, payload.y, delay=60)
+            await sessao.page.wait_for_timeout(400)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Falha ao clicar: {exc}")
+        return await _estado_sessao(sessao)
+
+
+@api_router.post("/sessao/{sessao_id}/teclar", response_model=SessaoEstado)
+async def sessao_teclar(sessao_id: str, payload: SessaoTeclaRequest):
+    sessao = _pegar_sessao(sessao_id)
+    async with sessao.lock:
+        try:
+            if payload.texto:
+                await sessao.page.keyboard.type(payload.texto, delay=35)
+            if payload.tecla:
+                await sessao.page.keyboard.press(payload.tecla)
+            await sessao.page.wait_for_timeout(250)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Falha ao digitar: {exc}")
+        return await _estado_sessao(sessao)
+
+
+@api_router.post("/sessao/{sessao_id}/coletar", response_model=SessaoColetaResponse)
+async def sessao_coletar(sessao_id: str, payload: SessaoColetaRequest):
+    """Com a sessão já autenticada, varre os anos pedidos e importa os períodos reais."""
+    sessao = _pegar_sessao(sessao_id)
+    ano_atual = datetime.now(timezone.utc).year
+    anos = sorted({a for a in (payload.anos or range(ano_atual - 5, ano_atual + 1))
+                   if 2009 <= a <= ano_atual + 1})
+
+    resultado: List[AnoColetado] = []
+    importados = 0
+    async with sessao.lock:
+        if not await sessao.autenticado():
+            raise HTTPException(status_code=409,
+                                detail="A sessão ainda está na tela de identificação. Resolva o captcha e clique em Continuar.")
+        sessao.estado = "coletando"
+        for ano in anos:
+            try:
+                periodos = await sessao.coletar_ano(ano)
+            except Exception as exc:
+                resultado.append(AnoColetado(ano=ano, erro=str(exc)[:160]))
+                continue
+            if not periodos:
+                resultado.append(AnoColetado(ano=ano, erro="Nenhum período encontrado."))
+                continue
+            agrupado = resumir(periodos)
+            await db.apuracoes_importadas.update_one(
+                {"cnpj": sessao.cnpj, "ano": ano},
+                {"$set": {"cnpj": sessao.cnpj, "ano": ano, "periodos": periodos,
+                          "origem": "sessao",
+                          "importado_em": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+            importados += 1
+            resultado.append(AnoColetado(
+                ano=ano, periodos=len(periodos),
+                em_aberto=len(agrupado["em_aberto"]), a_vencer=len(agrupado["a_vencer"]),
+                liquidados=len(agrupado["liquidados"]),
+                total_em_aberto_formatado=brl(agrupado["total_em_aberto"]),
+            ))
+        sessao.estado = "autenticado"
+        sessao.mensagem = f"{importados} ano(s) importado(s)."
+    return SessaoColetaResponse(cnpj=sessao.cnpj, anos=resultado, importados=importados)
+
+
+@api_router.post("/sessao/{sessao_id}/preencher-cnpj", response_model=SessaoEstado)
+async def sessao_preencher_cnpj(sessao_id: str, payload: SessaoAbrirRequest = None):
+    """Repreenche o campo de CNPJ (o PGMEI limpa o campo quando recusa o captcha)."""
+    sessao = _pegar_sessao(sessao_id)
+    async with sessao.lock:
+        await sessao._digitar_cnpj()
+        return await _estado_sessao(sessao)
+
+
+@api_router.post("/sessao/{sessao_id}/fechar")
+async def sessao_fechar(sessao_id: str):
+    await gerenciador.encerrar(sessao_id)
+    return {"encerrada": True}
+
+
 class DasPdfRequest(BaseModel):
     cnpj: str
     ano: int
@@ -627,4 +822,5 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    await gerenciador.encerrar_todas()
     client.close()

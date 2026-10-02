@@ -188,3 +188,37 @@ no servidor com relay de captcha (fase 2, pendente).
 - P2: SERPRO Integra Contador (playbook já levantado: auth Basic+mTLS, `DIVIDAATIVA24`,
   `GERARDASPDF21`, trial em `integra-contador-trial/v1`) — ativar quando houver e-CNPJ A1
 - P2: histórico de importações por CNPJ/ano
+
+## Implementado (2026-06 — Fase 2: navegador no servidor + importação em 1 clique)
+### Fase 2 (sessão com relay de captcha) — CONSTRUÍDA, mas BLOQUEADA pela Receita
+- `backend/pgmei_sessao.py`: Chromium (Playwright) no servidor, 1 sessão por vez, timeout de
+  10 min de inatividade, Xvfb em :99 (headless puro é recusado), stealth básico
+  (navigator.webdriver, languages, plugins), digitação do CNPJ com atraso humano
+- Endpoints: `POST /api/sessao/abrir`, `GET /api/sessao/{id}/tela` (JPEG do viewport),
+  `GET /api/sessao/{id}/estado`, `POST /api/sessao/{id}/clique|teclar|preencher-cnpj`,
+  `POST /api/sessao/{id}/coletar` (varre vários anos e grava as apurações), `POST .../fechar`
+- UI: modal "Consulta automática (beta)" em pgmei4.html espelhando a tela (1 quadro/1,2s),
+  relay de cliques/teclas, botão "Importar anos" (ano-5 .. ano) e "Repreencher CNPJ"
+- **RESULTADO DO TESTE REAL**: a tela da Receita aparece, o CNPJ é digitado, o clique em
+  Continuar chega ao site — e a Receita responde **"13896 - Impedido por proteção Captcha.
+  Comportamento de Robô."** O hCaptcha é INVISÍVEL e pontua por risco: IP de datacenter (GCP)
+  reprova mesmo com navegador gráfico e stealth. Não há desafio para o humano resolver.
+- Suporte a proxy já no código: `PGMEI_PROXY_SERVER` / `PGMEI_PROXY_USER` / `PGMEI_PROXY_PASS`
+  no backend/.env. Com proxy residencial brasileiro a Fase 2 provavelmente passa (NÃO TESTADO)
+- Chromium persistido em `/root/.cache/ms-playwright` (chromium-1243 + headless shell)
+
+### Importação em 1 clique (bookmarklet) — FUNCIONA, é a via recomendada
+- Painel de importação agora tem 3 opções: (1) bookmarklet, (2) colar código-fonte, (3) sessão beta
+- O bookmarklet roda no navegador DO USUÁRIO (IP e captcha dele), detecta o CNPJ pelo texto da
+  página e o ano pelo `input[name=pa]`, e faz POST do `outerHTML` para `/api/apuracao/importar`
+- CSP da Receita só restringe `frame-ancestors`, então fetch inline funciona (verificado)
+- Testado com Playwright a partir de outra origem (http://127.0.0.1:9099): alerta retornou
+  "Importado para o PGMEI de estudo: 4 periodo(s) de 2026, 1 em aberto, total devido R$ 94,12"
+- Fixture de teste do HTML de emissão: `/app/memory/fixtures/emissao_pgmei_exemplo.html`
+
+## Backlog atualizado
+- P1: Proxy residencial BR para desbloquear a Fase 2 (precisa de credencial do usuário)
+- P1: Extensão de navegador (substitui o bookmarklet, importa todos os anos de uma vez)
+- P2: SERPRO Integra Contador (playbook levantado) — caminho oficial sem captcha
+- P2: Cartão de resumo com total devido e meses atrasados no topo da apuração
+- P2: Histórico de importações por CNPJ/ano
