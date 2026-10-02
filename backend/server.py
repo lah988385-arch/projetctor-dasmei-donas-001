@@ -91,6 +91,9 @@ class ApuracaoResponse(BaseModel):
     periodos: List[PeriodoApuracao]
     origem: str = "mock"
     importado_em: Optional[str] = None
+    cache_expira_em: Optional[str] = None
+    cache_expirado: bool = False
+    dias_restantes: int = 0
 
 
 class ImportarApuracaoRequest(BaseModel):
@@ -105,6 +108,9 @@ class ImportacaoResumo(BaseModel):
     ano: int
     origem: str
     importado_em: Optional[str] = None
+    cache_expira_em: Optional[str] = None
+    cache_expirado: bool = False
+    dias_restantes: int = 0
     total_periodos: int = 0
     em_aberto: List[PeriodoApuracao] = []
     a_vencer: List[PeriodoApuracao] = []
@@ -260,6 +266,23 @@ def _vencimento_das(ano: int, mes: int) -> date:
     return d
 
 
+CACHE_DIAS = 7
+
+
+def _validade_cache(importado_em: Optional[str]) -> dict:
+    """Dados reais valem 7 dias; depois disso ficam marcados como desatualizados."""
+    if not importado_em:
+        return {"cache_expira_em": None, "cache_expirado": False, "dias_restantes": 0}
+    importado = datetime.fromisoformat(importado_em)
+    expira = importado + timedelta(days=CACHE_DIAS)
+    restantes = (expira - datetime.now(timezone.utc)).total_seconds() / 86400
+    return {
+        "cache_expira_em": expira.isoformat(),
+        "cache_expirado": restantes <= 0,
+        "dias_restantes": max(0, int(restantes // 1 + (1 if restantes % 1 else 0))),
+    }
+
+
 @api_router.get("/apuracao/{cnpj}/{ano}", response_model=ApuracaoResponse)
 async def apuracao(cnpj: str, ano: int):
     """Períodos de apuração do ano-calendário.
@@ -283,6 +306,7 @@ async def apuracao(cnpj: str, ano: int):
             periodos=[PeriodoApuracao(**p) for p in importado["periodos"]],
             origem="real",
             importado_em=importado.get("importado_em"),
+            **_validade_cache(importado.get("importado_em")),
         )
 
     vencimentos = {mes: _vencimento_das(ano, mes) for mes in range(1, 13)}
@@ -354,6 +378,7 @@ def _resumo_importacao(cnpj_num: str, ano: int, periodos: List[dict],
         baixados=[PeriodoApuracao(**p) for p in agrupado["baixados"]],
         total_em_aberto=agrupado["total_em_aberto"],
         total_em_aberto_formatado=brl(agrupado["total_em_aberto"]),
+        **_validade_cache(importado_em),
     )
 
 

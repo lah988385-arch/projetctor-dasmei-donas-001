@@ -222,3 +222,16 @@ no servidor com relay de captcha (fase 2, pendente).
 - P2: SERPRO Integra Contador (playbook levantado) — caminho oficial sem captcha
 - P2: Cartão de resumo com total devido e meses atrasados no topo da apuração
 - P2: Histórico de importações por CNPJ/ano
+
+## Implementado (2026-06 — Cache de 7 dias)
+- `CACHE_DIAS = 7` + `_validade_cache()` em server.py: a partir do `importado_em` calcula
+  `cache_expira_em`, `cache_expirado` e `dias_restantes`, expostos em `GET /api/apuracao/{cnpj}/{ano}`
+  e em `POST /api/apuracao/importar`
+- Os dados reais já viviam no Mongo (coleção `apuracoes_importadas`); agora eles têm validade:
+  dentro de 7 dias a tela serve do banco (instantâneo, zero acesso à Receita); passados 7 dias os
+  dados continuam sendo exibidos, mas marcados como desatualizados
+- UI: faixa verde "Dados reais do PGMEI importados em … Válidos por N dia(s)"; ao vencer vira
+  amarela com "Estes dados têm mais de 7 dias. Importe de novo para atualizar." e o botão passa a
+  "Atualizar agora". Reimportar (bookmarklet, colar HTML ou sessão) renova o prazo
+- Testado: import devolve dias=7/expirado=false; forçando `importado_em` 9 dias atrás a API
+  devolve dias=0/expirado=true mantendo os 4 períodos, e a UI mostra a faixa amarela

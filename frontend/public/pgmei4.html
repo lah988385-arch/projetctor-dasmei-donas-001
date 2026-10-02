@@ -441,8 +441,17 @@ document.addEventListener('DOMContentLoaded', function () {
         quando = ' em ' + d.toLocaleDateString('pt-BR') + ' às '
           + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       }
-      textoOrigem.innerHTML = '<strong>Dados reais do PGMEI</strong> importados' + quando + '.';
-      btnAbrirImport.textContent = 'Atualizar importação';
+      var validade = '';
+      if (data.cache_expirado) {
+        validade = ' <strong class=text-danger>Estes dados têm mais de 7 dias.</strong> Importe de novo para atualizar.';
+      } else if (data.dias_restantes) {
+        validade = ' Válidos por ' + data.dias_restantes + ' dia(s) — depois disso vale reimportar.';
+      }
+      avisoOrigem.classList.toggle('alert-success', !data.cache_expirado);
+      avisoOrigem.classList.toggle('alert-warning', !!data.cache_expirado);
+      avisoOrigem.classList.remove('alert-info');
+      textoOrigem.innerHTML = '<strong>Dados reais do PGMEI</strong> importados' + quando + '.' + validade;
+      btnAbrirImport.textContent = data.cache_expirado ? 'Atualizar agora' : 'Atualizar importação';
       btnLimparImport.style.display = '';
     } else {
       textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> Para ver os valores reais deste CNPJ, importe a tela de emissão do PGMEI oficial.';
