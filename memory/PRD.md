@@ -146,3 +146,45 @@ Reconstrução fiel, para estudo de front-end, da tela inicial do PGMEI (entrada
   - Popover "Acesso restrito" redesenhado: seta apontando para o item, fade/slide suave, posicionamento automático (acima/abaixo + clamp na viewport), toggle no clique, abre no hover e fecha ao sair do menu
   - Arquivos: `frontend/public/pgmei-shared.css`, `frontend/public/pgmei-shared.js` (afeta pgmei2..pgmei6)
 - Testado via screenshot: cursor = pointer e popover visível/posicionado corretamente
+
+## Implementado (2026-06 — Importação de dados REAIS do PGMEI via HTML)
+Decisão do usuário: SERPRO Integra Contador fica como **plano B documentado**. Caminho escolhido:
+scraping com sessão humana, começando pela **importação manual do HTML** (fase 1) e Chromium
+no servidor com relay de captcha (fase 2, pendente).
+
+### Provas técnicas levantadas (por que não dá scraping direto server-side)
+- `POST /Identificacao` sem captcha devolve a MESMA tela de login (200, 8412 bytes idênticos)
+- A página carrega **hCaptcha invisível** (`hcaptcha.execute()` no submit) → exige `h-captcha-response`
+- `x-frame-options: SAMEORIGIN` + CSP `frame-ancestors 'self'` → **iframe embutido impossível**
+- Cookie de sessão é `HttpOnly` → JS do cliente **não pode** capturar a sessão
+- Conclusão: só funciona com navegador no servidor (Playwright) ou importação manual do HTML
+
+### Entregue (fase 1)
+- `backend/pgmei_import.py`: parser do HTML da tela de emissão (BeautifulSoup+lxml).
+  Mapeia colunas pelo `<thead>` (trata `rowspan`/`colspan`) com fallback posicional;
+  extrai PA do checkbox ou do rótulo (01/2026, 2026/01, Janeiro/2026); `resumir()` agrupa em
+  em_aberto / a_vencer / liquidados / baixados e soma o total devido
+- `POST /api/apuracao/importar` {cnpj, ano, html} → 422 com mensagem clara se não achar a tabela
+- `GET /api/apuracao/importada/{cnpj}/{ano}` e `DELETE` (volta aos dados de exemplo)
+- `GET /api/apuracao/{cnpj}/{ano}` agora prefere os dados importados e devolve `origem: real|mock`
+  + `importado_em`; PDF/PIX/DAS gerados passam a usar os valores reais automaticamente
+- `_em_aberto()` no backend e `classeSituacao()` no front classificam situações livres
+  (Devedor/Em cobrança/Baixada/A Vencer), não mais strings fixas
+- `pgmei4.html`: faixa de origem dos dados + painel "Importar dados reais do PGMEI"
+  (link para o site oficial, instruções Ctrl+U, textarea, Importar/Cancelar, status)
+- Deps novas: beautifulsoup4, lxml (requirements.txt atualizado via pip freeze)
+
+### Testado
+- Parser: cabeçalho reconhecido e fallback sem `<thead>` → valores, datas e situações corretas
+- API: importar 200 (4 PA, 1 em aberto, R$ 94,12), HTML inválido 422, DELETE volta para mock
+- `GET /api/das/gerados?pas=` auto-seleciona o PA Devedor **importado** (202602)
+- UI (Playwright): importa, tabela troca de 12 linhas mock para 4 reais, faixa vira
+  "Dados reais do PGMEI importados em …", botão "Voltar aos dados de exemplo" restaura
+
+## Backlog atualizado
+- P1 (fase 2): Chromium/Playwright no servidor com relay do captcha (1 sessão por vez) para
+  eliminar o copiar/colar. Atenção: ~300-500 MB por sessão, sessão da Receita expira ~30 min
+- P1: aceitar também o HTML da tela de Consulta Extrato/Pendências (versão completa)
+- P2: SERPRO Integra Contador (playbook já levantado: auth Basic+mTLS, `DIVIDAATIVA24`,
+  `GERARDASPDF21`, trial em `integra-contador-trial/v1`) — ativar quando houver e-CNPJ A1
+- P2: histórico de importações por CNPJ/ano

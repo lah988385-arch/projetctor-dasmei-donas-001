@@ -13,6 +13,7 @@ from datetime import datetime, timezone, date, timedelta
 import httpx
 from das_pdf import (gerar_pdf_das, numero_apuracao, numero_documento,
                      composicao_das, brl, codigo_pix_estudo, qrcode_base64)
+from pgmei_import import parse_emissao, resumir
 
 
 ROOT_DIR = Path(__file__).parent
@@ -87,6 +88,29 @@ class ApuracaoResponse(BaseModel):
     data_pagamento_inicio: str
     data_pagamento_fim: str
     periodos: List[PeriodoApuracao]
+    origem: str = "mock"
+    importado_em: Optional[str] = None
+
+
+class ImportarApuracaoRequest(BaseModel):
+    cnpj: str
+    ano: int
+    html: str
+
+
+class ImportacaoResumo(BaseModel):
+    cnpj: str
+    cnpj_formatado: str
+    ano: int
+    origem: str
+    importado_em: Optional[str] = None
+    total_periodos: int = 0
+    em_aberto: List[PeriodoApuracao] = []
+    a_vencer: List[PeriodoApuracao] = []
+    liquidados: List[PeriodoApuracao] = []
+    baixados: List[PeriodoApuracao] = []
+    total_em_aberto: float = 0.0
+    total_em_aberto_formatado: str = "0,00"
 
 
 # ---------------------------------------------------------------------------
@@ -239,12 +263,26 @@ def _vencimento_das(ano: int, mes: int) -> date:
 async def apuracao(cnpj: str, ano: int):
     """Períodos de apuração do ano-calendário.
 
-    Sem acesso à base da Receita (Integra Contador), todos os períodos são
-    retornados como "Liquidado" — nesse caso a Receita exibe "-" nos valores.
+    Se houver uma importação do HTML real do PGMEI para esse CNPJ/ano, ela é
+    usada; caso contrário os períodos são simulados (dados de exemplo).
     """
     cnpj_num = _only_digits(cnpj)
     hoje = datetime.now(timezone.utc).date()
     ultimo_dia = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)
+
+    importado = await db.apuracoes_importadas.find_one({"cnpj": cnpj_num, "ano": ano})
+    if importado and importado.get("periodos"):
+        return ApuracaoResponse(
+            cnpj=cnpj_num,
+            cnpj_formatado=formatar_cnpj(cnpj_num),
+            ano=ano,
+            data_pagamento=hoje.strftime("%d/%m/%Y"),
+            data_pagamento_inicio=hoje.strftime("%d/%m/%Y"),
+            data_pagamento_fim=ultimo_dia.strftime("%d/%m/%Y"),
+            periodos=[PeriodoApuracao(**p) for p in importado["periodos"]],
+            origem="real",
+            importado_em=importado.get("importado_em"),
+        )
 
     vencimentos = {mes: _vencimento_das(ano, mes) for mes in range(1, 13)}
     # Os dois últimos PA vencidos são considerados em aberto. O cálculo é GLOBAL
@@ -297,6 +335,70 @@ async def apuracao(cnpj: str, ano: int):
         data_pagamento_fim=ultimo_dia.strftime("%d/%m/%Y"),
         periodos=periodos,
     )
+
+
+def _resumo_importacao(cnpj_num: str, ano: int, periodos: List[dict],
+                       importado_em: Optional[str]) -> ImportacaoResumo:
+    agrupado = resumir(periodos)
+    return ImportacaoResumo(
+        cnpj=cnpj_num,
+        cnpj_formatado=formatar_cnpj(cnpj_num),
+        ano=ano,
+        origem="real" if periodos else "mock",
+        importado_em=importado_em,
+        total_periodos=len(periodos),
+        em_aberto=[PeriodoApuracao(**p) for p in agrupado["em_aberto"]],
+        a_vencer=[PeriodoApuracao(**p) for p in agrupado["a_vencer"]],
+        liquidados=[PeriodoApuracao(**p) for p in agrupado["liquidados"]],
+        baixados=[PeriodoApuracao(**p) for p in agrupado["baixados"]],
+        total_em_aberto=agrupado["total_em_aberto"],
+        total_em_aberto_formatado=brl(agrupado["total_em_aberto"]),
+    )
+
+
+@api_router.post("/apuracao/importar", response_model=ImportacaoResumo)
+async def importar_apuracao(payload: ImportarApuracaoRequest):
+    """Importa os períodos reais a partir do HTML da tela de emissão do PGMEI."""
+    cnpj_num = _only_digits(payload.cnpj)
+    if not validar_cnpj(cnpj_num):
+        raise HTTPException(status_code=400, detail="CNPJ inválido.")
+    if not (payload.html or "").strip():
+        raise HTTPException(status_code=400, detail="Cole o código-fonte da página de emissão.")
+
+    periodos = parse_emissao(payload.html, payload.ano)
+    if not periodos:
+        raise HTTPException(
+            status_code=422,
+            detail=("Não encontrei a tabela de períodos de apuração nesse conteúdo. "
+                    "Confirme que copiou a página de emissão do PGMEI do ano "
+                    f"{payload.ano} (a tela com a lista de meses)."),
+        )
+
+    importado_em = datetime.now(timezone.utc).isoformat()
+    await db.apuracoes_importadas.update_one(
+        {"cnpj": cnpj_num, "ano": payload.ano},
+        {"$set": {"cnpj": cnpj_num, "ano": payload.ano, "periodos": periodos,
+                  "origem": "html", "importado_em": importado_em}},
+        upsert=True,
+    )
+    return _resumo_importacao(cnpj_num, payload.ano, periodos, importado_em)
+
+
+@api_router.get("/apuracao/importada/{cnpj}/{ano}", response_model=ImportacaoResumo)
+async def apuracao_importada(cnpj: str, ano: int):
+    """Situação da importação de dados reais para o CNPJ/ano."""
+    cnpj_num = _only_digits(cnpj)
+    doc = await db.apuracoes_importadas.find_one({"cnpj": cnpj_num, "ano": ano})
+    periodos = doc.get("periodos", []) if doc else []
+    return _resumo_importacao(cnpj_num, ano, periodos, doc.get("importado_em") if doc else None)
+
+
+@api_router.delete("/apuracao/importada/{cnpj}/{ano}", response_model=ImportacaoResumo)
+async def remover_apuracao_importada(cnpj: str, ano: int):
+    """Descarta os dados importados e volta para os dados de exemplo."""
+    cnpj_num = _only_digits(cnpj)
+    await db.apuracoes_importadas.delete_one({"cnpj": cnpj_num, "ano": ano})
+    return _resumo_importacao(cnpj_num, ano, [], None)
 
 
 class DasPdfRequest(BaseModel):
@@ -361,6 +463,11 @@ class DasGeradosResponse(BaseModel):
     itens: List[DasGeradoItem]
 
 
+def _em_aberto(situacao: str) -> bool:
+    s = (situacao or "").strip().lower()
+    return not any(t in s for t in ("liquidad", "pago", "baixad", "a vencer"))
+
+
 async def _periodos_escolhidos(cnpj_num: str, ano: int, pas: List[str]):
     if not validar_cnpj(cnpj_num):
         raise HTTPException(status_code=400, detail="CNPJ inválido.")
@@ -372,7 +479,7 @@ async def _periodos_escolhidos(cnpj_num: str, ano: int, pas: List[str]):
                                 detail="Períodos informados não pertencem ao ano-calendário.")
     else:
         # Nenhum período marcado: apura automaticamente todos os débitos em aberto
-        escolhidos = [p for p in apurados.periodos if p.situacao == "Devedor"]
+        escolhidos = [p for p in apurados.periodos if _em_aberto(p.situacao)]
         if not escolhidos:
             raise HTTPException(status_code=400,
                                 detail="Não há débitos em aberto neste ano-calendário.")
@@ -456,8 +563,15 @@ async def das_pix(cnpj: str, ano: int, pas: str = "", dt: Optional[str] = None):
 
     total = 0.0
     for p in escolhidos:
-        venc = datetime.strptime(p.vencimento, "%d/%m/%Y").date()
-        total += composicao_das(ano, "", venc, datetime.strptime(pagamento, "%d/%m/%Y").date())["total"]
+        try:
+            venc = datetime.strptime(p.vencimento, "%d/%m/%Y").date()
+        except ValueError:
+            venc = _vencimento_das(ano, int(p.pa[4:6]))
+        try:
+            pago_em = datetime.strptime(pagamento, "%d/%m/%Y").date()
+        except ValueError:
+            pago_em = datetime.now(timezone.utc).date()
+        total += composicao_das(ano, "", venc, pago_em)["total"]
     total = round(total, 2)
 
     identificador = f"DAS{ano}{escolhidos[0].pa[4:6]}{cnpj_num[:6]}"

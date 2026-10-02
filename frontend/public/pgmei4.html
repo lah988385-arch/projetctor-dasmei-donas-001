@@ -160,6 +160,32 @@
  
  
  
+<div class=row>
+<div class=col-md-12>
+<div class="alert alert-info" id=pg-origem-aviso data-testid="origem-dados-aviso" style="margin-bottom:10px;display:none">
+<span id=pg-origem-texto></span>
+<button type=button class="btn btn-xs btn-success" id=btnAbrirImport data-testid="abrir-importacao-btn" style="margin-left:8px">Importar dados reais</button>
+<button type=button class="btn btn-xs btn-default" id=btnLimparImport data-testid="limpar-importacao-btn" style="margin-left:4px;display:none">Voltar aos dados de exemplo</button>
+</div>
+<div class="panel panel-default" id=pg-import-box data-testid="importacao-box" style="display:none">
+<div class=panel-heading><h4 class=panel-title>Importar dados reais do PGMEI</h4></div>
+<div class=panel-body>
+<ol class=text-info style="padding-left:18px">
+<li>Abra o <a href="https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/Identificacao" target=_blank rel=noopener id=linkPgmeiReal data-testid="abrir-pgmei-real-link">PGMEI oficial da Receita Federal</a>, informe o CNPJ, resolva o captcha e chegue na tela de emissão do ano desejado.</li>
+<li>Nessa página pressione <strong>Ctrl+U</strong> (ver código-fonte) e copie todo o conteúdo com <strong>Ctrl+A</strong> e <strong>Ctrl+C</strong>.</li>
+<li>Cole abaixo e clique em <strong>Importar</strong>. Os valores reais passam a valer para este CNPJ e ano.</li>
+</ol>
+<textarea id=htmlImportado class=form-control rows=6 data-testid="html-importado-textarea" style="width:100%;min-height:140px;font-family:monospace;font-size:12px" placeholder="Cole aqui o código-fonte da tela de emissão do PGMEI"></textarea>
+<div style="margin-top:10px">
+<button type=button class="btn btn-success" id=btnImportar data-testid="importar-html-btn">Importar</button>
+<button type=button class="btn btn-default" id=btnCancelarImport data-testid="cancelar-importacao-btn">Cancelar</button>
+<span id=importStatus data-testid="importacao-status" style="margin-left:10px"></span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
  <div class=row>
  <div class=col-md-12>
  <div class="panel panel-default">
@@ -331,10 +357,16 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   if (rotuloAno) rotuloAno.textContent = ano;
 
-  var CLASSE_SITUACAO = { 'Liquidado': 'pago', 'Devedor': 'devedor', 'A Vencer': 'text-info' };
+  function classeSituacao(situacao) {
+    var s = (situacao || '').toLowerCase();
+    if (s.indexOf('liquidad') >= 0 || s.indexOf('pago') >= 0) return 'pago';
+    if (s.indexOf('a vencer') >= 0) return 'text-info';
+    if (s.indexOf('baixad') >= 0) return '';
+    return 'devedor';
+  }
 
   function linha(p) {
-    var classe = CLASSE_SITUACAO[p.situacao] || '';
+    var classe = classeSituacao(p.situacao);
     return '<tr class=pa>'
       + '<td class="selecionar text-center"><input type=checkbox class=paSelecionado name=pa value=' + p.pa
       + ' data-testid="pa-check-' + p.pa + '"></td>'
@@ -351,20 +383,127 @@ document.addEventListener('DOMContentLoaded', function () {
       + '</tr>';
   }
 
-  var carregada = fetch('/api/apuracao/' + cnpj + '/' + ano)
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      tbody.innerHTML = data.periodos.map(linha).join('');
-      if (dataPagamento) {
-        dataPagamento.value = data.data_pagamento;
-        dataPagamento.setAttribute('data-date-start-date', data.data_pagamento_inicio);
-        dataPagamento.setAttribute('data-date-end-date', data.data_pagamento_fim);
+  var avisoOrigem = document.getElementById('pg-origem-aviso');
+  var textoOrigem = document.getElementById('pg-origem-texto');
+  var boxImport = document.getElementById('pg-import-box');
+  var btnAbrirImport = document.getElementById('btnAbrirImport');
+  var btnLimparImport = document.getElementById('btnLimparImport');
+  var btnImportar = document.getElementById('btnImportar');
+  var btnCancelarImport = document.getElementById('btnCancelarImport');
+  var areaHtml = document.getElementById('htmlImportado');
+  var statusImport = document.getElementById('importStatus');
+
+  function pintarOrigem(data) {
+    if (!avisoOrigem) return;
+    avisoOrigem.style.display = 'block';
+    avisoOrigem.classList.toggle('alert-success', data.origem === 'real');
+    avisoOrigem.classList.toggle('alert-info', data.origem !== 'real');
+    if (data.origem === 'real') {
+      var quando = '';
+      if (data.importado_em) {
+        var d = new Date(data.importado_em);
+        quando = ' em ' + d.toLocaleDateString('pt-BR') + ' às '
+          + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       }
-    })
+      textoOrigem.innerHTML = '<strong>Dados reais do PGMEI</strong> importados' + quando + '.';
+      btnAbrirImport.textContent = 'Atualizar importação';
+      btnLimparImport.style.display = '';
+    } else {
+      textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> Para ver os valores reais deste CNPJ, importe a tela de emissão do PGMEI oficial.';
+      btnAbrirImport.textContent = 'Importar dados reais';
+      btnLimparImport.style.display = 'none';
+    }
+  }
+
+  function preencher(data) {
+    tbody.innerHTML = data.periodos.map(linha).join('');
+    if (dataPagamento) {
+      dataPagamento.value = data.data_pagamento;
+      dataPagamento.setAttribute('data-date-start-date', data.data_pagamento_inicio);
+      dataPagamento.setAttribute('data-date-end-date', data.data_pagamento_fim);
+    }
+    pintarOrigem(data);
+  }
+
+  function recarregar() {
+    return fetch('/api/apuracao/' + cnpj + '/' + ano)
+      .then(function (r) { return r.json(); })
+      .then(preencher);
+  }
+
+  var carregada = recarregar()
     .catch(function () {
       tbody.innerHTML = '<tr><td colspan=11 class="text-center text-danger">'
         + 'Não foi possível carregar os períodos de apuração agora.</td></tr>';
     });
+
+  if (btnAbrirImport) {
+    btnAbrirImport.addEventListener('click', function () {
+      boxImport.style.display = 'block';
+      statusImport.textContent = '';
+      areaHtml.focus();
+    });
+  }
+
+  if (btnCancelarImport) {
+    btnCancelarImport.addEventListener('click', function () {
+      boxImport.style.display = 'none';
+      areaHtml.value = '';
+      statusImport.textContent = '';
+    });
+  }
+
+  if (btnImportar) {
+    btnImportar.addEventListener('click', function () {
+      var html = (areaHtml.value || '').trim();
+      if (!html) {
+        statusImport.className = 'text-danger';
+        statusImport.textContent = 'Cole o código-fonte da página de emissão antes de importar.';
+        return;
+      }
+      btnImportar.disabled = true;
+      statusImport.className = 'text-info';
+      statusImport.textContent = 'Importando...';
+      fetch('/api/apuracao/importar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: cnpj, ano: Number(ano), html: html })
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (res) {
+          btnImportar.disabled = false;
+          if (!res.ok) {
+            statusImport.className = 'text-danger';
+            statusImport.textContent = res.body.detail || 'Não foi possível importar esse conteúdo.';
+            return;
+          }
+          statusImport.className = 'text-success';
+          statusImport.textContent = res.body.total_periodos + ' período(s) importado(s) · '
+            + res.body.em_aberto.length + ' em aberto · ' + res.body.liquidados.length
+            + ' liquidado(s) · total devido R$ ' + res.body.total_em_aberto_formatado;
+          areaHtml.value = '';
+          return recarregar();
+        })
+        .catch(function () {
+          btnImportar.disabled = false;
+          statusImport.className = 'text-danger';
+          statusImport.textContent = 'Falha de comunicação ao importar.';
+        });
+    });
+  }
+
+  if (btnLimparImport) {
+    btnLimparImport.addEventListener('click', function () {
+      btnLimparImport.disabled = true;
+      fetch('/api/apuracao/importada/' + cnpj + '/' + ano, { method: 'DELETE' })
+        .then(function () { return recarregar(); })
+        .then(function () {
+          btnLimparImport.disabled = false;
+          boxImport.style.display = 'none';
+          statusImport.textContent = '';
+        });
+    });
+  }
 
   // só revela a tela quando a tabela está pronta e o carregamento mínimo passou
   var minimo = new Promise(function (ok) { setTimeout(ok, 2000); });
