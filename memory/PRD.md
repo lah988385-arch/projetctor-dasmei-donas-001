@@ -94,7 +94,61 @@
 - hCaptcha permanece apenas visual (mock). Testado no browser: CNPJ válido → sucesso, inválido → erro. OK.
 
 
-## Atualização (2026-06 — Painel admin /donaspainel + engrenagem A+B de sessão)
+## ✅ MARCO (04/10/2026) — VALORES REAIS FUNCIONANDO PONTA A PONTA
+
+Validado com CNPJ real 65.989.041/0001-06 (PAULO CESAR ALMEIDA MENEZES), ano 2026:
+12 períodos importados, conferindo linha por linha com a Receita (Março/2026 Devedor
+R$ 108,92; Agosto/2026 Devedor R$ 90,88; Set–Dez A Vencer R$ 86,05; Jan/Fev Não Optante;
+Abr–Jul Liquidado). A tela `pgmei4.html` renderiza os 12 períodos com a faixa
+"Dados reais · Importados em ... · Válidos por 7 dia(s)".
+
+### Arquitetura final (a que funciona)
+O servidor NÃO consegue consultar a Receita: replay do cookie fora do navegador é
+redirecionado para /Identificacao (captcha). Provado em teste: a autenticação não
+viaja só no cookie (há `Encrypted-Local-Storage-Key` = token em localStorage, e
+`ARRAffinity`/`ASP.NET_SessionId` amarrados ao IP/servidor de origem).
+```
+PAINEL (servidor) = cérebro: cache 7 dias + parser + telas
+EXTENSÃO no navegador logado = braço: lê a tabela autenticada e faz POST /api/apuracao/importar
+```
+
+### Bugs encontrados e corrigidos na extensão (v2.0 → v2.3.0)
+1. **Loop infinito martelando a Receita (v2.0)**: o combo de ano é um `bootstrap-select`
+   (`<select name=ano id=anoCalendarioSelect tabindex=-98>`, options SEM atributo value).
+   Setar `.value` ou clicar no widget NÃO sincroniza o estado → o form ia sem o ano →
+   "É necessário selecionar o ano-calendário" → retry infinito.
+   **Fix**: `postarAno()` monta um POST na mão (`action=/.../pgmei.app/emissao`, campo `ano`,
+   sem token antifalsificação) — determinístico, ignora o widget.
+2. **Travado em "Iniciando..." (v2.1)**: `content.js` era injetado 2x no mesmo documento
+   (`content_scripts` + `executeScript`) → `SyntaxError: Identifier already declared` →
+   o script morria antes de logar. **Fix**: todo o arquivo dentro de um IIFE + guarda
+   `window.__dpRodou` contra execução dupla.
+3. **Repetia anos sem MEI (v2.2)**: anos em que o CNPJ não era MEI devolvem
+   "Contribuinte não optante pelo SIMEI" SEM tabela, e o código tratava como tentativa falha.
+   **Fix**: sem tabela = ano sem dados → marca como feito na 1ª vez e segue.
+   Cada ano é tentado exatamente 1x → loop impossível. Travas: MAX_PASSOS=60.
+4. Anos processados em ordem decrescente (mais recente primeiro).
+
+### Extensão v2.3.0 — `/app/extensao-sessao/` → `public/extensao-pgmei-v2.3.0.zip`
+Manifest V3. `content.js` detecta o CNPJ na tela, lê os anos do seletor, faz o POST de
+cada ano e envia o HTML para `/api/apuracao/importar`. Zip versionado (evita cache do Chrome).
+
+### Tempos medidos/estimados
+- CNPJ já em cache: ~0,1 s (instantâneo) · Ano já na tela: ~1 s · Cada ano extra: ~3-5 s
+- Todos os anos de um CNPJ: ~20-30 s · 10-20 consultas/min: seguro
+
+### Próximos passos acordados
+- **P0 Prefetch no login**: hoje `/api/apuracao/consultar` só é chamado em `pgmei4.html`
+  (última tela). Disparar já no login (`pgmei.html`) ganha 5-15 s — usuário chega na
+  apuração com o dado pronto.
+- **P0 Fila consumida pela extensão**: servidor guarda CNPJs pendentes; a extensão pega da
+  fila e busca sozinha no navegador logado.
+- **P1 Multi-CNPJ**: automatizar o pulo entre CNPJs da carteira (falta ver como a conta
+  do usuário troca de CNPJ — lista de procurações?).
+- **P2** Limpar o card "Motor de consulta" do painel (server-side não consulta mais) e o
+  campo de colar cookie em Configurações (inútil para o servidor).
+
+
 
 ### Decisão estratégica (modelo do "amigo do usuário")
 Abandonado o scraping server-side (bloqueado por hCaptcha + IP de datacenter) e a operação
