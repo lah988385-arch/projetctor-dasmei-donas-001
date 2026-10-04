@@ -1,7 +1,17 @@
 /* DonasPainel — worker que roda na SUA sessão logada do PGMEI.
-   Você já está autenticado (gov.br) e com a emissão de um CNPJ aberta.
-   A extensão lê a tabela JÁ autenticada e envia o HTML de cada ano para o
-   painel (/api/apuracao/importar), varrendo todos os anos do seletor. */
+   Lê a tabela JÁ autenticada e envia o HTML de cada ano ao painel.
+
+   POR QUE O POST DIRETO: o combo de ano da Receita é um bootstrap-select
+   (o <select name=ano> real fica escondido com tabindex=-98). Mexer no valor
+   por código ou clicar no widget NÃO sincroniza o estado dele, então o
+   formulário ia sem o ano e a Receita respondia "É necessário selecionar o
+   ano-calendário" — gerando loop infinito.
+   O form é um POST simples (action=/.../pgmei.app/emissao, campo "ano", sem
+   token antifalsificação), então montamos o POST na mão: determinístico.
+   Há travas anti-loop para nunca martelar o site da Receita. */
+
+const MAX_TENTATIVAS_ANO = 2;   // tentativas por ano
+const MAX_PASSOS = 60;          // recargas totais por importação
 
 async function lerEstado() {
   const { estado, config } = await chrome.storage.local.get(['estado', 'config']);
@@ -12,73 +22,95 @@ async function logar(estado, texto, tipo) {
   estado.log = [...(estado.log || []), { texto, tipo }].slice(-80);
   await gravar(estado);
 }
-
-function soDigitos(v) { return (v || '').replace(/\D/g, ''); }
-
-function detectarCnpj() {
-  // "CNPJ: 67.229.444/0001-74" no cabeçalho do contribuinte
-  const m = document.body.innerText.match(/CNPJ[:\s]*([\d]{2}\.?[\d]{3}\.?[\d]{3}\/?[\d]{4}-?[\d]{2})/i);
-  if (m) return soDigitos(m[1]);
-  const pa = document.querySelector('input[name=pa]');
-  return null;
+async function parar(estado, texto, tipo = 'erro') {
+  estado.ativo = false;
+  await logar(estado, texto, tipo);
 }
 
+const soDigitos = (v) => (v || '').replace(/\D/g, '');
+const fmtCnpj = (c) => c.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+
+function selectAno() {
+  return document.querySelector('select[name=ano], #anoCalendarioSelect, #ano');
+}
+function tabelaNaTela() {
+  return !!document.querySelector('tr.pa, input[name=pa]');
+}
+function alertaDaPagina() {
+  return [...document.querySelectorAll('.alert-danger, .alert-warning, .alert-erro')]
+    .map((a) => (a.innerText || '').trim())
+    .filter((t) => t && !/JavaScript/i.test(t))[0] || '';
+}
+function detectarCnpj() {
+  const m = document.body.innerText
+    .match(/CNPJ[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
+  return m ? soDigitos(m[1]) : null;
+}
 function anoDaPagina() {
   const pa = document.querySelector('input[name=pa]');
   if (pa && /^\d{6}$/.test(pa.value)) return Number(pa.value.slice(0, 4));
-  const sel = document.querySelector('select[name=ano], #ano');
-  if (sel && sel.value) return Number(String(sel.value).slice(0, 4));
+  const sel = selectAno();
+  const v = sel && (sel.value || '').trim();
+  if (v && /^\d{4}/.test(v)) return Number(v.slice(0, 4));
   return null;
 }
-
 function anosDoSeletor() {
-  const sel = document.querySelector('select[name=ano], #ano');
+  const sel = selectAno();
   if (!sel) return [];
   return [...sel.options]
-    .map((o) => Number(String(o.value).slice(0, 4)))
-    .filter((a) => a > 2000);
+    .map((o) => Number(((o.value || o.text || '').trim()).slice(0, 4)))
+    .filter((a) => a > 2000 && a < 2100)
+    .sort((a, b) => b - a); // mais recente primeiro
 }
 
-function enviarFormulario(elemento) {
-  const form = (elemento && elemento.closest('form')) || document.querySelector('form');
-  if (!form) return false;
-  const botao = form.querySelector('button[type=submit], input[type=submit]');
-  if (botao) { botao.click(); return true; }
-  if (form.requestSubmit) { form.requestSubmit(); return true; }
-  form.submit();
-  return true;
-}
+/* Monta e envia o POST do ano na mão — sem depender do bootstrap-select. */
+function postarAno(ano) {
+  const sel = selectAno();
+  const original = (sel && sel.closest('form'))
+    || document.querySelector('form[action*="emissao"]');
+  const action = (original && original.getAttribute('action'))
+    || '/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/emissao';
 
-async function selecionarAno(estado, ano) {
-  const sel = document.querySelector('select[name=ano], #ano');
-  if (!sel) { estado.ativo = false; await logar(estado, 'Seletor de ano não encontrado.', 'erro'); return; }
-  const existe = [...sel.options].some((o) => String(o.value).slice(0, 4) === String(ano));
-  if (!existe) {
-    estado.feitos = [...(estado.feitos || []), ano];
-    await logar(estado, `${ano}: não disponível para este CNPJ.`);
-    return proximoAno(estado);
+  const f = document.createElement('form');
+  f.method = 'post';
+  f.action = action;
+  f.style.display = 'none';
+
+  // replica eventuais campos hidden (tokens) do form original
+  if (original) {
+    original.querySelectorAll('input[type=hidden]').forEach((h) => {
+      if (!h.name || h.name === 'ano') return;
+      const i = document.createElement('input');
+      i.type = 'hidden'; i.name = h.name; i.value = h.value;
+      f.appendChild(i);
+    });
   }
-  const opt = [...sel.options].find((o) => String(o.value).slice(0, 4) === String(ano));
-  sel.value = opt.value;
-  sel.dispatchEvent(new Event('change', { bubbles: true }));
-  await logar(estado, `Abrindo ${ano}...`);
-  setTimeout(() => enviarFormulario(sel), 500);
+  const inp = document.createElement('input');
+  inp.type = 'hidden'; inp.name = 'ano'; inp.value = String(ano);
+  f.appendChild(inp);
+
+  document.body.appendChild(f);
+  f.submit();
 }
 
 async function proximoAno(estado) {
   const pendentes = (estado.anos || []).filter((a) => !(estado.feitos || []).includes(a));
   if (!pendentes.length) {
-    estado.ativo = false;
-    await logar(estado, '✓ Concluído! Abra o painel para ver os valores reais no cache.', 'ok');
+    const ok = (estado.importados || []).length;
+    await parar(estado, `✓ Concluído! ${ok} ano(s) importado(s). Veja os valores no painel.`, 'ok');
     return;
   }
-  return selecionarAno(estado, pendentes[0]);
+  const ano = pendentes[0];
+  estado.anoAtual = ano;
+  await logar(estado, `Abrindo ${ano}...`);
+  await gravar(estado);
+  setTimeout(() => postarAno(ano), 300);
 }
 
-async function enviarAnoAtual(estado, api) {
+async function importarAnoAtual(estado, api) {
   const ano = anoDaPagina();
-  if (!ano) { await logar(estado, 'Não identifiquei o ano desta tela.', 'erro'); return; }
-  if ((estado.feitos || []).includes(ano)) return proximoAno(estado);
+  if (!ano) { await parar(estado, 'Não identifiquei o ano desta tela.'); return; }
+  if ((estado.feitos || []).includes(ano)) { estado.anoAtual = null; return proximoAno(estado); }
 
   await logar(estado, `Lendo ${ano}...`);
   try {
@@ -87,16 +119,20 @@ async function enviarAnoAtual(estado, api) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cnpj: estado.cnpj, ano, html: document.documentElement.outerHTML }),
     });
-    const corpo = await r.json().catch(() => ({}));
+    const c = await r.json().catch(() => ({}));
     if (!r.ok) {
-      await logar(estado, `${ano}: ${corpo.detail || 'falhou'}`, 'erro');
+      await logar(estado, `${ano}: ${c.detail || 'falhou'}`, 'erro');
     } else {
-      await logar(estado, `${ano}: ${corpo.total_periodos} período(s), ${corpo.em_aberto.length} em aberto, devido R$ ${corpo.total_em_aberto_formatado}`, 'ok');
+      estado.importados = [...(estado.importados || []), ano];
+      await logar(estado,
+        `${ano}: ${c.total_periodos} período(s), ${c.em_aberto.length} em aberto, devido R$ ${c.total_em_aberto_formatado}`, 'ok');
     }
   } catch (e) {
     await logar(estado, `${ano}: falha ao enviar (${e.message})`, 'erro');
   }
+
   estado.feitos = [...(estado.feitos || []), ano];
+  estado.anoAtual = null;
   await gravar(estado);
   return proximoAno(estado);
 }
@@ -104,30 +140,57 @@ async function enviarAnoAtual(estado, api) {
 (async function () {
   const { estado, api } = await lerEstado();
   if (!estado || !estado.ativo) return;
-  if (!api) { await logar(estado, 'Configure o endereço do painel.', 'erro'); estado.ativo = false; await gravar(estado); return; }
 
-  const naEmissao = document.querySelector('tr.pa, input[name=pa], select[name=ano], #ano');
-  if (document.querySelector('#cnpj') && !naEmissao) {
-    await logar(estado, 'Você não está na emissão. Faça login, abra "Emitir Guia (DAS)" de um CNPJ e clique em Importar.', 'erro');
-    estado.ativo = false; await gravar(estado); return;
+  // trava global: nunca martelar o site da Receita
+  estado.passos = (estado.passos || 0) + 1;
+  if (estado.passos > MAX_PASSOS) {
+    await parar(estado, 'Parei por segurança (limite de passos atingido).');
+    return;
+  }
+  await gravar(estado);
+
+  if (!api) { await parar(estado, 'Configure o endereço do painel.'); return; }
+
+  if (document.querySelector('#cnpj') && !selectAno() && !tabelaNaTela()) {
+    await parar(estado, 'Você está na tela de identificação. Faça login, abra "Emitir Guia (DAS)" de um CNPJ e clique em Importar.');
+    return;
   }
 
   if (!estado.cnpj) {
     const cnpj = detectarCnpj();
-    if (!cnpj) { await logar(estado, 'Não achei o CNPJ na tela. Abra a emissão de um CNPJ.', 'erro'); estado.ativo = false; await gravar(estado); return; }
+    if (!cnpj) { await parar(estado, 'Não achei o CNPJ na tela. Abra a emissão de um CNPJ.'); return; }
     estado.cnpj = cnpj;
-    await logar(estado, `CNPJ ${cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5')} detectado.`, 'ok');
+    await logar(estado, `CNPJ ${fmtCnpj(cnpj)} detectado.`, 'ok');
   }
 
   if (!estado.anos || !estado.anos.length) {
     let anos = anosDoSeletor();
     if (!anos.length) { const a = anoDaPagina(); anos = a ? [a] : []; }
+    if (!anos.length) { await parar(estado, 'Não achei os anos disponíveis nesta tela.'); return; }
     estado.anos = anos;
     estado.feitos = [];
-    await logar(estado, `Anos a importar: ${anos.join(', ') || '—'}`);
+    estado.importados = [];
+    estado.tent = {};
+    await logar(estado, `Anos a importar: ${anos.join(', ')}`);
     await gravar(estado);
   }
 
-  if (document.querySelector('tr.pa, input[name=pa]')) return enviarAnoAtual(estado, api);
-  if (document.querySelector('select[name=ano], #ano')) return proximoAno(estado);
+  // tabela na tela -> importa; senão trata o alerta e vai pro próximo ano
+  if (tabelaNaTela()) return importarAnoAtual(estado, api);
+
+  const alerta = alertaDaPagina();
+  if (alerta && estado.anoAtual) {
+    const ano = estado.anoAtual;
+    estado.tent = estado.tent || {};
+    estado.tent[ano] = (estado.tent[ano] || 0) + 1;
+    await logar(estado, `${ano}: ${alerta}`, 'erro');
+    if (estado.tent[ano] >= MAX_TENTATIVAS_ANO) {
+      estado.feitos = [...(estado.feitos || []), ano];
+      await logar(estado, `${ano}: pulando depois de ${MAX_TENTATIVAS_ANO} tentativa(s).`, 'erro');
+      estado.anoAtual = null;
+    }
+    await gravar(estado);
+  }
+
+  return proximoAno(estado);
 })();
