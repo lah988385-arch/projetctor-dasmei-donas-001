@@ -42,9 +42,14 @@ function tabelaNaTela() {
   return !!document.querySelector('tr.pa, input[name=pa]');
 }
 function alertaDaPagina() {
-  return [...document.querySelectorAll('.alert-danger, .alert-warning, .alert-erro')]
+  const alvos = [...document.querySelectorAll('[class*="alert"], [class*="erro"], [role=alert]')]
     .map((a) => (a.innerText || '').trim())
-    .filter((t) => t && !/JavaScript/i.test(t))[0] || '';
+    .filter((t) => t && t.length < 300 && !/JavaScript/i.test(t));
+  if (alvos.length) return alvos[alvos.length - 1];
+  // rede de segurança: mensagens típicas da Receita sem classe de alerta
+  const m = document.body.innerText
+    .match(/(n[ãa]o\s+optante[^.\n]{0,80}|necess[áa]rio\s+selecionar[^.\n]{0,60})/i);
+  return m ? m[1].trim() : '';
 }
 function detectarCnpj() {
   const m = document.body.innerText
@@ -187,17 +192,15 @@ async function importarAnoAtual(estado, api) {
   // tabela na tela -> importa; senão trata o alerta e vai pro próximo ano
   if (tabelaNaTela()) return importarAnoAtual(estado, api);
 
+  // Voltamos de um POST e NÃO há tabela: este ano simplesmente não tem dados
+  // (ex.: "Contribuinte não optante pelo SIMEI neste ano-calendário").
+  // Marca como feito na PRIMEIRA vez e segue — garante progresso, sem loop.
   const alerta = alertaDaPagina();
-  if (alerta && estado.anoAtual) {
+  if (estado.anoAtual) {
     const ano = estado.anoAtual;
-    estado.tent = estado.tent || {};
-    estado.tent[ano] = (estado.tent[ano] || 0) + 1;
-    await logar(estado, `${ano}: ${alerta}`, 'erro');
-    if (estado.tent[ano] >= MAX_TENTATIVAS_ANO) {
-      estado.feitos = [...(estado.feitos || []), ano];
-      await logar(estado, `${ano}: pulando depois de ${MAX_TENTATIVAS_ANO} tentativa(s).`, 'erro');
-      estado.anoAtual = null;
-    }
+    estado.feitos = [...(estado.feitos || []), ano];
+    await logar(estado, `${ano}: ${alerta || 'sem dados para este ano'} — pulando.`, 'erro');
+    estado.anoAtual = null;
     await gravar(estado);
   }
 
