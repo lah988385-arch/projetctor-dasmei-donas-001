@@ -90,8 +90,12 @@ def _mapear_colunas(tabela) -> Dict[str, int]:
         if inicio_grupo is not None:
             inicio_proxima_linha = inicio_grupo
 
-    if "principal" in encontrados and "periodo" in encontrados:
-        posicoes.update(encontrados)
+    # Se o cabeçalho foi lido, confia NELE: campos ausentes ficam None -> "-".
+    # Antes exigia-se 'principal'; quando um ano não traz as colunas de valor
+    # (tudo liquidado), o mapeamento era descartado e as posições fixas liam a
+    # coluna errada — a situação virava "R$ 71,60" e os meses ficavam "-".
+    if "periodo" in encontrados and "situacao" in encontrados:
+        return {campo: encontrados.get(campo) for campo in ROTULOS}
     return posicoes
 
 

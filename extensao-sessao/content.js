@@ -150,6 +150,41 @@ async function importarAnoAtual(estado, api) {
 /* Auto-descoberta: manda o mapa da aplicação autenticada (forms, campos, links)
    para o painel. Serve para montar o "Modo API" sem adivinhar endpoints e sem
    exigir nenhuma ação do usuário. Roda uma vez por página, em silêncio. */
+/* Explora as rotas do próprio app autenticado via fetch (same-origin: os cookies
+   vão automaticamente) e manda o mapa de cada uma. Objetivo: descobrir se existe
+   algum ponto de troca de CNPJ sem precisar de nenhuma ação do usuário. */
+async function explorarRotas(api) {
+  const RAIZ = '/SimplesNacional/Aplicacoes/ATSPO/pgmei.app';
+  const rotas = ['/Home/inicio', '/consulta/extrato', '/consulta/pendencia',
+                 '/consulta/dasEmitidos', '/identificacao', '/Identificacao'];
+  for (const rota of rotas) {
+    try {
+      const r = await fetch(RAIZ + rota, { credentials: 'include' });
+      const txt = await r.text();
+      const doc = new DOMParser().parseFromString(txt, 'text/html');
+      const forms = [...doc.querySelectorAll('form')].slice(0, 20).map((f) => ({
+        action: f.getAttribute('action') || '',
+        method: (f.getAttribute('method') || 'get').toLowerCase(),
+        id: f.id || '',
+        campos: [...f.querySelectorAll('input,select,textarea')].slice(0, 30).map((c) => ({
+          nome: c.name || '', tipo: (c.tagName === 'SELECT' ? 'select' : (c.type || 'text')), id: c.id || '',
+        })),
+      }));
+      const links = [...doc.querySelectorAll('a[href]')].slice(0, 60).map((a) => ({
+        href: a.getAttribute('href') || '', texto: (a.innerText || a.textContent || '').trim().slice(0, 80),
+      }));
+      await fetch(`${api}/api/extensao/mapa`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'EXPLORADA ' + rota + ' [' + r.status + ']',
+          titulo: (doc.title || '').slice(0, 200), forms, links,
+        }),
+      });
+      await new Promise((s) => setTimeout(s, 1200)); // espaçamento educado
+    } catch (e) { /* silencioso */ }
+  }
+}
+
 async function enviarMapa(api) {
   try {
     const forms = [...document.querySelectorAll('form')].slice(0, 40).map((f) => ({
@@ -185,7 +220,8 @@ async function enviarMapa(api) {
   if (window.__dpRodou) return;
   window.__dpRodou = true;
 
-  enviarMapa(api);  // auto-descoberta, em paralelo
+  enviarMapa(api);      // mapa da página atual
+  explorarRotas(api);   // varre as rotas do app sozinha
 
   // trava global: nunca martelar o site da Receita
   estado.passos = (estado.passos || 0) + 1;
