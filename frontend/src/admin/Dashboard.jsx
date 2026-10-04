@@ -55,8 +55,8 @@ export default function Dashboard() {
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5" data-testid="dashboard-chart">
         <h3 className="text-sm font-semibold text-white mb-4">Acessos nos últimos 14 dias</h3>
-        <div style={{ width: "100%", height: 260 }}>
-          <ResponsiveContainer>
+        <div className="w-full h-[260px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart data={dados.serie_acessos} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="gAcessos" x1="0" y1="0" x2="0" y2="1">
