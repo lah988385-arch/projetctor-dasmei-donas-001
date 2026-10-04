@@ -16,6 +16,7 @@ from das_pdf import (gerar_pdf_das, numero_apuracao, numero_documento,
                      composicao_das, brl, codigo_pix_estudo, qrcode_base64)
 from pgmei_import import parse_emissao, resumir
 from pgmei_sessao import VIEWPORT, SessaoExpirada, gerenciador
+from pgmei_motor import motor
 from admin_painel import montar_router as montar_admin_router
 
 
@@ -670,10 +671,11 @@ async def _consulta_automatica(cnpj_num: str, ano: int):
 
 @api_router.post("/apuracao/consultar", response_model=ConsultaStatus)
 async def consultar_apuracao(payload: ConsultaAutomaticaRequest):
-    """Dispara a busca dos valores reais: cache de 7 dias e, se vencido, a Receita.
+    """Dispara a busca dos valores reais reaproveitando a sessão autenticada salva.
 
-    A consulta roda em segundo plano (o navegador leva ~30 s) e o front acompanha
-    relendo /api/apuracao. Falhas ficam em cooldown de 1 h para não repetir a cada tela.
+    Cache de 7 dias primeiro; se vencido, enfileira a consulta no motor (que usa o
+    cookie da sessão). O front acompanha relendo /api/apuracao. Sem sessão ativa,
+    devolve 'recusada' orientando a renovar a sessão no painel.
     """
     cnpj_num = _only_digits(payload.cnpj)
     if not validar_cnpj(cnpj_num):
@@ -689,7 +691,12 @@ async def consultar_apuracao(payload: ConsultaAutomaticaRequest):
                       - datetime.fromisoformat(tentativa["em"])) < timedelta(hours=1):
         return ConsultaStatus(status="recusada", motivo=tentativa.get("motivo"))
 
-    asyncio.create_task(_consulta_automatica(cnpj_num, payload.ano))
+    resultado = await motor.enfileirar(cnpj_num, payload.ano)
+    if resultado == "sem_sessao":
+        return ConsultaStatus(
+            status="recusada",
+            motivo="Sem sessão ativa. Renove a sessão autenticada no painel (/donaspainel → Configurações).",
+        )
     return ConsultaStatus(status="em_andamento")
 
 
@@ -901,7 +908,12 @@ async def create_status_check(input: StatusCheckCreate):
 
 # Include the router in the main app
 app.include_router(api_router)
-app.include_router(montar_admin_router(db))
+app.include_router(montar_admin_router(db, motor))
+
+
+@app.on_event("startup")
+async def iniciar_motor():
+    motor.iniciar(db)
 
 app.add_middleware(
     CORSMiddleware,

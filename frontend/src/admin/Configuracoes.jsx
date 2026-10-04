@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { KeyRound, Loader2, CheckCircle2, AlertTriangle, ShieldAlert, X } from "lucide-react";
+import { KeyRound, Loader2, CheckCircle2, AlertTriangle, ShieldAlert, X, Cpu, Download, Puzzle } from "lucide-react";
 import { toast } from "sonner";
 import { api, fmtData, formatApiError } from "./api";
+
+const BASE = process.env.REACT_APP_BACKEND_URL;
 
 function StatusBadge({ sessao }) {
   if (!sessao || !sessao.tem_cookie) {
@@ -27,6 +29,7 @@ function StatusBadge({ sessao }) {
 
 export default function Configuracoes() {
   const [sessao, setSessao] = useState(null);
+  const [motor, setMotor] = useState(null);
   const [cookie, setCookie] = useState("");
   const [descricao, setDescricao] = useState("");
   const [modal, setModal] = useState(false);
@@ -34,7 +37,13 @@ export default function Configuracoes() {
   const [salvando, setSalvando] = useState(false);
 
   const carregar = () => api.get("/sessao").then(({ data }) => setSessao(data));
-  useEffect(() => { carregar(); }, []);
+  const carregarMotor = () => api.get("/motor").then(({ data }) => setMotor(data)).catch(() => {});
+  useEffect(() => {
+    carregar();
+    carregarMotor();
+    const t = setInterval(carregarMotor, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   const abrirConfirmacao = () => {
     if (!cookie.trim()) {
@@ -134,6 +143,72 @@ export default function Configuracoes() {
         >
           Salvar nova sessão
         </button>
+      </div>
+
+      {/* motor de consulta */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5" data-testid="motor-status">
+        <div className="flex items-center gap-2 mb-4">
+          <Cpu className="w-4 h-4 text-sky-400" />
+          <h3 className="text-sm font-semibold text-white">Motor de consulta</h3>
+          {motor?.sessao_viva === true && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-medium">rodando</span>
+          )}
+          {motor?.sessao_viva === false && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[11px] font-medium">pausado</span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Na fila</p>
+            <p className="text-xl font-bold text-white" data-testid="motor-fila">{motor?.fila ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Consultas OK</p>
+            <p className="text-xl font-bold text-white">{motor?.processadas_ok ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Falhas</p>
+            <p className="text-xl font-bold text-white">{motor?.falhas ?? "—"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Espaçamento</p>
+            <p className="text-xl font-bold text-white">{motor?.espaco_segundos ?? "—"}s</p>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div>
+            <span className="text-slate-500">Última consulta: </span>
+            <span className="text-slate-300">{fmtData(motor?.ultima_consulta_em)}</span>
+          </div>
+          {motor?.ultimo_erro && (
+            <div className="text-amber-400/90"><span className="text-slate-500">Último erro: </span>{motor.ultimo_erro}</div>
+          )}
+        </div>
+      </div>
+
+      {/* extensão do navegador */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5" data-testid="extensao-box">
+        <div className="flex items-center gap-2 mb-2">
+          <Puzzle className="w-4 h-4 text-violet-400" />
+          <h3 className="text-sm font-semibold text-white">Extensão do navegador</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          Captura o cookie da sessão (inclusive <code className="text-slate-400">HttpOnly</code>) e envia aqui com um clique — sem copiar/colar.
+        </p>
+        <ol className="text-xs text-slate-400 space-y-1.5 list-decimal list-inside mb-4">
+          <li>Baixe o .zip e descompacte numa pasta.</li>
+          <li>Chrome → <code className="text-slate-300">chrome://extensions</code> → ative o "Modo desenvolvedor".</li>
+          <li>"Carregar sem compactação" → selecione a pasta.</li>
+          <li>Faça login no gov.br/Receita, clique no ícone da extensão e em "Capturar e enviar sessão".</li>
+        </ol>
+        <a
+          href={`${BASE}/extensao-sessao.zip`}
+          download
+          data-testid="extensao-download"
+          className="inline-flex items-center gap-2 bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
+        >
+          <Download className="w-4 h-4" /> Baixar extensão (.zip)
+        </a>
       </div>
 
       {/* modal de confirmação por senha */}

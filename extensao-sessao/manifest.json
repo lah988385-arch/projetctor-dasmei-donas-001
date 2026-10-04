@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "DonasPainel — Captura de Sessão",
+  "version": "1.0.0",
+  "description": "Captura o cookie da sessão autenticada do gov.br/Receita e envia para o seu painel com um clique.",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": [
+    "https://*.receita.fazenda.gov.br/*",
+    "https://*.gov.br/*",
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DonasPainel — Capturar sessão"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

@@ -94,7 +94,7 @@ async def admin_atual(request: Request) -> str:
 # ---------------------------------------------------------------------------
 # Factory: recebe o db do server.py e devolve o router pronto
 # ---------------------------------------------------------------------------
-def montar_router(db) -> APIRouter:
+def montar_router(db, motor=None) -> APIRouter:
 
     # ---- Auth ----
     @admin_router.post("/login", response_model=TokenResponse)
@@ -224,5 +224,12 @@ def montar_router(db) -> APIRouter:
             "em": agora,
         })
         return {"ok": True, "atualizada_em": agora}
+
+    # ---- Motor de consulta (status) ----
+    @admin_router.get("/motor")
+    async def motor_status(usuario: str = Depends(admin_atual)):
+        if motor is None:
+            return {"disponivel": False}
+        return {"disponivel": True, **motor.status()}
 
     return admin_router
