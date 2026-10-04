@@ -1,88 +1,50 @@
 const $ = (id) => document.getElementById(id);
-const log = (msg, cls) => {
+
+function render(log) {
   const el = $("log");
-  const linha = document.createElement("div");
-  if (cls) linha.className = cls;
-  linha.textContent = msg;
-  el.appendChild(linha);
+  el.innerHTML = "";
+  (log || []).forEach((l) => {
+    const d = document.createElement("div");
+    if (l.tipo) d.className = l.tipo;
+    d.textContent = l.texto;
+    el.appendChild(d);
+  });
   el.scrollTop = el.scrollHeight;
-};
-
-// domínios onde vive a sessão autenticada do gov.br / Receita
-const DOMINIOS = ["receita.fazenda.gov.br", "gov.br"];
-
-// restaura o que o usuário já preencheu
-chrome.storage.local.get(["painel", "usuario"], (d) => {
-  if (d.painel) $("painel").value = d.painel;
-  if (d.usuario) $("usuario").value = d.usuario;
-});
-
-async function coletarCookies() {
-  const vistos = new Map();
-  for (const dominio of DOMINIOS) {
-    const cookies = await chrome.cookies.getAll({ domain: dominio });
-    for (const c of cookies) {
-      // mantém a última ocorrência de cada nome
-      vistos.set(c.name, c.value);
-    }
-  }
-  return Array.from(vistos.entries()).map(([n, v]) => `${n}=${v}`).join("; ");
 }
 
-$("enviar").addEventListener("click", async () => {
-  const painel = $("painel").value.trim().replace(/\/+$/, "");
-  const usuario = $("usuario").value.trim();
-  const senha = $("senha").value;
-  const descricao = $("descricao").value.trim();
+chrome.storage.local.get(["config", "estado"], (d) => {
+  if (d.config && d.config.api) $("painel").value = d.config.api;
+  if (d.estado) render(d.estado.log);
+});
 
-  $("log").innerHTML = "";
-  if (!painel || !usuario || !senha) {
-    log("Preencha painel, usuário e senha.", "err");
+// atualiza o log em tempo real enquanto a extensão trabalha
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.estado) render(changes.estado.newValue && changes.estado.newValue.log);
+});
+
+$("importar").addEventListener("click", async () => {
+  const api = $("painel").value.trim().replace(/\/+$/, "");
+  if (!api) { render([{ texto: "Preencha o endereço do painel.", tipo: "err" }]); return; }
+
+  await chrome.storage.local.set({
+    config: { api },
+    estado: { ativo: true, log: [{ texto: "Iniciando...", tipo: "ok" }] },
+  });
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !/receita\.fazenda\.gov\.br/.test(tab.url || "")) {
+    render([{ texto: "Abra a aba do PGMEI (receita.fazenda.gov.br) e tente de novo.", tipo: "err" }]);
     return;
   }
-  chrome.storage.local.set({ painel, usuario });
-
-  $("enviar").disabled = true;
+  // dispara o worker imediatamente na aba atual; o loop segue via content_script
   try {
-    log("Lendo cookies da sessão...");
-    const cookie = await coletarCookies();
-    if (!cookie) {
-      log("Nenhum cookie encontrado. Faça login no gov.br/Receita primeiro.", "err");
-      $("enviar").disabled = false;
-      return;
-    }
-    log(`Cookie capturado (${cookie.split(";").length} itens).`);
-
-    log("Autenticando no painel...");
-    const rLogin = await fetch(`${painel}/api/admin/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usuario, senha }),
-    });
-    if (!rLogin.ok) {
-      const e = await rLogin.json().catch(() => ({}));
-      log(`Falha no login: ${e.detail || rLogin.status}`, "err");
-      $("enviar").disabled = false;
-      return;
-    }
-    const { token } = await rLogin.json();
-
-    log("Enviando sessão...");
-    const rSessao = await fetch(`${painel}/api/admin/sessao`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ cookie, descricao, senha }),
-    });
-    if (!rSessao.ok) {
-      const e = await rSessao.json().catch(() => ({}));
-      log(`Falha ao salvar: ${e.detail || rSessao.status}`, "err");
-      $("enviar").disabled = false;
-      return;
-    }
-    log("✓ Sessão enviada e salva no painel!", "ok");
-  } catch (err) {
-    log(`Erro: ${err.message}`, "err");
-  } finally {
-    $("enviar").disabled = false;
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+  } catch (e) {
+    render([{ texto: "Erro ao iniciar: " + e.message, tipo: "err" }]);
   }
+});
+
+$("parar").addEventListener("click", async () => {
+  const { estado } = await chrome.storage.local.get("estado");
+  await chrome.storage.local.set({ estado: { ...(estado || {}), ativo: false } });
 });

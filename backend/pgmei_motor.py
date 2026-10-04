@@ -62,8 +62,9 @@ class MotorConsulta:
         self.db = db
         if not self._worker or self._worker.done():
             self._worker = asyncio.create_task(self._rodar_fila())
-        if not self._keepalive or self._keepalive.done():
-            self._keepalive = asyncio.create_task(self._rodar_keepalive())
+        # keep-alive no servidor foi desativado: o replay do cookie fora do
+        # navegador cai na tela de captcha da Receita. A coleta real é feita
+        # pela extensão, dentro do navegador logado do usuário.
 
     async def _cookie(self) -> Tuple[Optional[str], Optional[str]]:
         """Retorna (cookie, atualizada_em). cookie=None se ausente ou expirado."""

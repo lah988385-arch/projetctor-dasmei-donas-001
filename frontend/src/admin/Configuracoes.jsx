@@ -193,13 +193,14 @@ export default function Configuracoes() {
           <h3 className="text-sm font-semibold text-white">Extensão do navegador</h3>
         </div>
         <p className="text-xs text-slate-500 mb-4">
-          Captura o cookie da sessão (inclusive <code className="text-slate-400">HttpOnly</code>) e envia aqui com um clique — sem copiar/colar.
+          Lê os valores reais do PGMEI dentro do <strong className="text-slate-300">seu navegador logado</strong> e envia ao painel — sem burlar nada, sem captcha.
         </p>
         <ol className="text-xs text-slate-400 space-y-1.5 list-decimal list-inside mb-4">
           <li>Baixe o .zip e descompacte numa pasta.</li>
           <li>Chrome → <code className="text-slate-300">chrome://extensions</code> → ative o "Modo desenvolvedor".</li>
           <li>"Carregar sem compactação" → selecione a pasta.</li>
-          <li>Faça login no gov.br/Receita, clique no ícone da extensão e em "Capturar e enviar sessão".</li>
+          <li>Faça login no gov.br e abra <strong className="text-slate-300">"Emitir Guia (DAS)"</strong> de um CNPJ (a tabela de meses na tela).</li>
+          <li>Clique no ícone da extensão → cole o endereço deste painel → <strong className="text-slate-300">"Importar CNPJ aberto"</strong>. Ela varre todos os anos sozinha.</li>
         </ol>
         <a
           href={`${BASE}/extensao-sessao.zip`}
