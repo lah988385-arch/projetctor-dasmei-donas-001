@@ -16,6 +16,7 @@ from das_pdf import (gerar_pdf_das, numero_apuracao, numero_documento,
                      composicao_das, brl, codigo_pix_estudo, qrcode_base64)
 from pgmei_import import parse_emissao, resumir
 from pgmei_sessao import VIEWPORT, SessaoExpirada, gerenciador
+from admin_painel import montar_router as montar_admin_router
 
 
 ROOT_DIR = Path(__file__).parent
@@ -900,6 +901,7 @@ async def create_status_check(input: StatusCheckCreate):
 
 # Include the router in the main app
 app.include_router(api_router)
+app.include_router(montar_admin_router(db))
 
 app.add_middleware(
     CORSMiddleware,
