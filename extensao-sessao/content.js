@@ -10,6 +10,11 @@
    token antifalsificação), então montamos o POST na mão: determinístico.
    Há travas anti-loop para nunca martelar o site da Receita. */
 
+/* IIFE: escopo próprio. Sem isto, a 2ª injeção do arquivo no mesmo documento
+   (content_scripts + executeScript) estoura "Identifier already declared" e o
+   script morre antes de logar qualquer coisa. */
+(function () {
+
 const MAX_TENTATIVAS_ANO = 2;   // tentativas por ano
 const MAX_PASSOS = 60;          // recargas totais por importação
 
@@ -141,6 +146,10 @@ async function importarAnoAtual(estado, api) {
   const { estado, api } = await lerEstado();
   if (!estado || !estado.ativo) return;
 
+  // evita rodar duas vezes no MESMO documento (injeção dupla)
+  if (window.__dpRodou) return;
+  window.__dpRodou = true;
+
   // trava global: nunca martelar o site da Receita
   estado.passos = (estado.passos || 0) + 1;
   if (estado.passos > MAX_PASSOS) {
@@ -194,3 +203,5 @@ async function importarAnoAtual(estado, api) {
 
   return proximoAno(estado);
 })();
+
+})();  // fim do IIFE

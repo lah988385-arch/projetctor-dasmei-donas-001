@@ -203,15 +203,15 @@ export default function Configuracoes() {
           <li>Clique no ícone da extensão → cole o endereço deste painel → <strong className="text-slate-300">"Importar CNPJ aberto"</strong>. Ela varre todos os anos sozinha.</li>
         </ol>
         <a
-          href={`${BASE}/extensao-pgmei-v2.1.0.zip`}
+          href={`${BASE}/extensao-pgmei-v2.2.0.zip`}
           download
           data-testid="extensao-download"
           className="inline-flex items-center gap-2 bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 font-medium rounded-lg px-4 py-2.5 text-sm transition-colors"
         >
-          <Download className="w-4 h-4" /> Baixar extensão v2.1.0 (.zip)
+          <Download className="w-4 h-4" /> Baixar extensão v2.2.0 (.zip)
         </a>
         <p className="text-[11px] text-slate-600 mt-2">
-          Arquivo: <code>extensao-pgmei-v2.1.0.zip</code> — remova a versão anterior no Chrome antes de carregar esta.
+          Arquivo: <code>extensao-pgmei-v2.2.0.zip</code> — remova a versão anterior no Chrome antes de carregar esta.
         </p>
       </div>
 
