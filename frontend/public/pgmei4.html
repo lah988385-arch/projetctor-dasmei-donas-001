@@ -508,16 +508,18 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function encerrarConsulta(motivo) {
-    // NUNCA esconder: sem dados reais, a tabela abaixo é de EXEMPLO e o usuário
-    // precisa saber disso de forma inequívoca (risco de tratar valor falso como real).
-    if (modoDebug) btnAbrirImport.style.display = '';
+    if (!modoDebug) {
+      // fidelidade ao original: sem faixa na tela
+      avisoOrigem.style.display = 'none';
+      return;
+    }
+    // em modo debug (?debug=1) a faixa continua, com o motivo
+    btnAbrirImport.style.display = '';
     avisoOrigem.style.display = 'block';
     avisoOrigem.classList.remove('alert-success', 'alert-info');
     avisoOrigem.classList.add('alert-warning');
-    textoOrigem.innerHTML = '<strong>ATENÇÃO: valores de EXEMPLO, não são reais.</strong> '
-      + 'Este CNPJ ainda não foi importado. Para ver os valores reais, abra a emissão '
-      + 'deste CNPJ no PGMEI logado e use a extensão "Importar CNPJ aberto".'
-      + (motivo ? '<br><span style="font-size:11px">Detalhe: ' + motivo + '</span>' : '');
+    textoOrigem.innerHTML = '<strong>Dados de exemplo.</strong> '
+      + (motivo ? motivo : 'Consulta automática não concluída.');
   }
 
   function aguardarConsulta(restantes) {
