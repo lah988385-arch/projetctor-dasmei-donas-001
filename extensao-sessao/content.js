@@ -147,6 +147,36 @@ async function importarAnoAtual(estado, api) {
   return proximoAno(estado);
 }
 
+/* Auto-descoberta: manda o mapa da aplicação autenticada (forms, campos, links)
+   para o painel. Serve para montar o "Modo API" sem adivinhar endpoints e sem
+   exigir nenhuma ação do usuário. Roda uma vez por página, em silêncio. */
+async function enviarMapa(api) {
+  try {
+    const forms = [...document.querySelectorAll('form')].slice(0, 40).map((f) => ({
+      action: f.getAttribute('action') || '',
+      method: (f.getAttribute('method') || 'get').toLowerCase(),
+      id: f.id || '',
+      campos: [...f.querySelectorAll('input,select,textarea')].slice(0, 40).map((c) => ({
+        nome: c.name || '',
+        tipo: (c.tagName === 'SELECT' ? 'select' : (c.type || 'text')),
+        id: c.id || '',
+        opcoes: c.tagName === 'SELECT'
+          ? [...c.options].slice(0, 30).map((o) => ((o.value || o.text || '').trim()))
+          : undefined,
+      })),
+    }));
+    const links = [...document.querySelectorAll('a[href]')].slice(0, 120).map((a) => ({
+      href: a.getAttribute('href') || '',
+      texto: (a.innerText || '').trim().slice(0, 80),
+    }));
+    await fetch(`${api}/api/extensao/mapa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: location.href, titulo: document.title, forms, links }),
+    });
+  } catch (e) { /* silencioso: nunca atrapalha a importação */ }
+}
+
 (async function () {
   const { estado, api } = await lerEstado();
   if (!estado || !estado.ativo) return;
@@ -154,6 +184,8 @@ async function importarAnoAtual(estado, api) {
   // evita rodar duas vezes no MESMO documento (injeção dupla)
   if (window.__dpRodou) return;
   window.__dpRodou = true;
+
+  enviarMapa(api);  // auto-descoberta, em paralelo
 
   // trava global: nunca martelar o site da Receita
   estado.passos = (estado.passos || 0) + 1;

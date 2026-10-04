@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Response, Body
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -667,6 +667,24 @@ async def _consulta_automatica(cnpj_num: str, ano: int):
     finally:
         if sessao:
             await gerenciador.encerrar(sessao.id)
+
+
+@api_router.post("/extensao/mapa")
+async def receber_mapa(payload: dict = Body(...)):
+    """Auto-descoberta: a extensão envia o mapa da aplicação autenticada.
+
+    Em vez de adivinhar os endpoints do PGMEI (o que já causou 3 bugs), a extensão
+    lê sozinha os formulários/campos/links da área logada e manda para cá. Com isso
+    monta-se o "Modo API" (fetch em segundo plano) sem chute e sem ação do usuário.
+    """
+    await db.mapas_pgmei.insert_one({
+        "url": str(payload.get("url", ""))[:500],
+        "titulo": str(payload.get("titulo", ""))[:300],
+        "forms": payload.get("forms", [])[:40],
+        "links": payload.get("links", [])[:120],
+        "em": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
 
 
 @api_router.post("/apuracao/consultar", response_model=ConsultaStatus)
