@@ -691,13 +691,14 @@ async def consultar_apuracao(payload: ConsultaAutomaticaRequest):
                       - datetime.fromisoformat(tentativa["em"])) < timedelta(hours=1):
         return ConsultaStatus(status="recusada", motivo=tentativa.get("motivo"))
 
-    resultado = await motor.enfileirar(cnpj_num, payload.ano)
-    if resultado == "sem_sessao":
-        return ConsultaStatus(
-            status="recusada",
-            motivo="Sem sessão ativa. Renove a sessão autenticada no painel (/donaspainel → Configurações).",
-        )
-    return ConsultaStatus(status="em_andamento")
+    # O servidor NÃO consegue consultar a Receita: o replay do cookie fora do
+    # navegador é redirecionado para a tela de captcha (autenticação depende de
+    # token em localStorage + sessão amarrada ao IP de origem). A coleta real é
+    # feita pela extensão, dentro do navegador logado do usuário.
+    return ConsultaStatus(
+        status="recusada",
+        motivo="a coleta é feita pela extensão no navegador logado (o servidor não consegue consultar a Receita).",
+    )
 
 
 class DasPdfRequest(BaseModel):

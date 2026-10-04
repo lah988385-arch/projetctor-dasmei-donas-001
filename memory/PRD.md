@@ -94,7 +94,38 @@
 - hCaptcha permanece apenas visual (mock). Testado no browser: CNPJ válido → sucesso, inválido → erro. OK.
 
 
-## ✅ MARCO (04/10/2026) — VALORES REAIS FUNCIONANDO PONTA A PONTA
+## ⚠️ CORREÇÃO CRÍTICA (04/10/2026) — mock disfarçado de dado real
+
+**Bug reportado pelo usuário**: 4 CNPJs diferentes (THAYSSA, MARIA HELENA, ROBERTO, LUCI)
+mostravam valores IDÊNTICOS (Jul Devedor R$ 95,95 / Ago Devedor R$ 86,39 / Set-Dez R$ 82,05).
+
+**Causa**: era o MOCK (`_apuracao_mock` em server.py), que é determinístico — marca sempre
+"os 2 últimos PA vencidos" como Devedor com a mesma fórmula para qualquer CNPJ. Qualquer CNPJ
+sem importação pela extensão cai nesse mock.
+
+**Agravante (risco real de negócio)**: em `pgmei4.html`, `encerrarConsulta()` fazia
+`avisoOrigem.style.display='none'` quando não era modo debug — ou seja, **escondia o aviso** e
+deixava a tabela fictícia na tela SEM nenhuma indicação. Usuário/cliente poderia tratar valor
+falso como real. Além disso o spinner girava 20 tentativas × 3s = 60s antes disso.
+
+**Correções aplicadas**:
+- `pgmei4.html` → `encerrarConsulta()` NUNCA esconde: exibe faixa laranja
+  "ATENÇÃO: valores de EXEMPLO, não são reais. Este CNPJ ainda não foi importado..."
+  orientando a usar a extensão. Tentativas reduzidas de 20 → 3.
+- `server.py` → `/api/apuracao/consultar` não enfileira mais no motor (o servidor não consegue
+  consultar a Receita). Devolve `recusada` imediatamente com motivo honesto.
+- Limpos os registros antigos de `tentativas_consulta` que mandavam "Renove a sessão no painel"
+  (ação inútil, já que o replay server-side nunca funciona).
+
+**Validado**: CNPJ não importado → `recusada` + faixa de aviso visível; Paulo Cesar
+(importado) → `cache` com os valores reais e faixa verde "Dados reais".
+
+### Decisão pendente de produto (P1)
+Hoje, sem dado real, a tela ainda RENDERIZA a tabela mock (com aviso em destaque). Avaliar com
+o usuário se é melhor **ocultar a tabela inteira** e mostrar só o aviso, eliminando qualquer
+chance de confusão.
+
+
 
 Validado com CNPJ real 65.989.041/0001-06 (PAULO CESAR ALMEIDA MENEZES), ano 2026:
 12 períodos importados, conferindo linha por linha com a Receita (Março/2026 Devedor
